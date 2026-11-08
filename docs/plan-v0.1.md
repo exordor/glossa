@@ -41,6 +41,7 @@ v0.1 只验证一件事：在画布上读一章书、选段提问，比在编辑
 9. **批注多层显示**：边沟色条、句级背景、短语下划线、叠层浮层；生词本收集。
 10. **锚点黄金测试**：对改标题、插段、改字三类修改测三层命中率，作为「锚点失效率 < 2%」的守门测试。
 
-## 待人工
+## 最后再做（暂不关心）
 
-- 真实 Obsidian round-trip 实测：`pnpm obsidian:fixture` → 用 Obsidian 打开 `tmp/obsidian-roundtrip`，拖一张卡片 → `pnpm obsidian:check`，结果填进 `docs/adr/0001-obsidian-roundtrip.md`。
+- 真实 Obsidian round-trip 实测：`pnpm obsidian:fixture` → 用 Obsidian 打开 `tmp/obsidian-roundtrip`，拖一张卡片 → `pnpm obsidian:check`，结果填进 `docs/adr/0001-obsidian-roundtrip.md`。自动测试已覆盖最坏情况（字段全丢也能从 `nodes/*.md` 重建），所以这一步不阻塞 v0.1。
+- 「在 Obsidian 里查看画布」（`.canvas/` 是点目录，Obsidian 默认不显示）：是否提供导出，等 v0.1 试读后再说。

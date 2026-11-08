@@ -1,7 +1,7 @@
 # 0001 Obsidian 对 x-reader 字段的 round-trip
 
 - 日期：2026-11-08
-- 状态：自动部分已通过；真实 Obsidian 实测待跑
+- 状态：自动部分已通过；真实 Obsidian 实测推迟到 v0.1 最后（2026-11-08 jiale 决定暂不关心）
 
 ## 背景
 
