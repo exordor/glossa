@@ -11,6 +11,7 @@ import { Icon } from "./icons";
 import { aiReadiness, llmErrorText } from "./llm";
 import type { BookSession } from "./session";
 import { SourceReader, type TextRange } from "./SourceReader";
+import { InlineCard, type InlineCardState } from "./InlineCard";
 
 /** 新卡放在来源（章节卡）这一列最下面一张卡的下方。 */
 const STACK_GAP = 40;
@@ -63,6 +64,10 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
   const actions = useMemo(() => reader.registry.list("action"), [reader]);
   const nodesRef = useRef<ReaderNode[]>([]);
   const [toast, setToast] = useState<{ text: string; detail: string } | null>(null);
+  const [inline, setInline] = useState<InlineCardState | null>(null);
+  /** 就地卡的请求：钉到画布、重试要用。 */
+  const inlineReq = useRef<{ action: ActionTemplate; anchor: Anchor; message: string } | null>(null);
+  const inlineRun = useRef<string | null>(null);
   /** 正在流式生成的回答：回答卡 nodeId → runId。删卡或离开这本书时取消。 */
   const runsRef = useRef(new Map<string, string>());
   /** 回答卡的请求，「重试」用同一请求重新生成（只在本次会话内；重新打开书后从来源摘录卡推回）。 */
@@ -113,6 +118,8 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       // 上次流式生成到一半就关掉 / 刷新了：没有进行中的请求，标成失败，可重试。
       let interrupted = false;
       for (const n of await reader.listNodes()) {
+        // 示例书在内存里、演示卡本来就是「进行中」，不处理。
+        if (!session.persistent) break;
         if (n.meta.type !== "answer" || n.meta.status !== "running" || runsRef.current.has(n.id)) continue;
         const text = n.text ? `${n.text}\n\n（${INTERRUPTED}）` : INTERRUPTED;
         await reader.updateNode(n.id, { status: "failed", text, body: text });
@@ -327,6 +334,102 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
     return () => window.removeEventListener("glossa:retry", onRetry);
   }, [reader, refreshCard, streamAnswer, messageFor]);
 
+  /** 就地卡：流式写进阅读器顶部的小卡，不建画布节点。同一时间只有一张，新的会取消旧的。 */
+  const runInline = useCallback(
+    (action: ActionTemplate, anchor: Anchor, message: string) => {
+      if (inlineRun.current) void reader.llm.cancel(inlineRun.current);
+      const runId = newId();
+      inlineRun.current = runId;
+      inlineReq.current = { action, anchor, message };
+      setInline({ runId, actionId: action.id, actionName: action.name, quote: anchor.quote.exact, text: "", status: "running" });
+      const mine = (c: InlineCardState | null) => c?.runId === runId;
+      void (async () => {
+        let acc = "";
+        let raf = 0;
+        const flush = () => {
+          raf = 0;
+          setInline((c) => (mine(c) ? { ...c!, text: acc } : c));
+        };
+        for await (const c of reader.llm.run({
+          alias: action.model,
+          runId,
+          actionId: action.id,
+          instructions: action.prompt,
+          messages: [{ role: "user", content: [{ type: "text", text: message }] }],
+        })) {
+          if (c.type === "text") {
+            acc += c.delta;
+            if (!raf) raf = requestAnimationFrame(flush);
+          } else if (c.type === "finish" || c.type === "error") {
+            if (raf) cancelAnimationFrame(raf);
+            const done = c.type === "finish";
+            if (inlineRun.current === runId) inlineRun.current = null;
+            setInline((cur) =>
+              mine(cur) ? { ...cur!, text: acc, status: done ? "done" : "failed", ...(done ? {} : { error: llmErrorText(c.error) }) } : cur,
+            );
+          }
+        }
+      })();
+    },
+    [reader],
+  );
+
+  const closeInline = useCallback(() => {
+    if (inlineRun.current) void reader.llm.cancel(inlineRun.current);
+    inlineRun.current = null;
+    setInline(null);
+    inlineReq.current = null;
+  }, [reader]);
+
+  // 离开这本书时停掉就地卡的生成。
+  useEffect(
+    () => () => {
+      if (inlineRun.current) void reader.llm.cancel(inlineRun.current);
+    },
+    [reader],
+  );
+
+  /** 下一张卡的位置：来源章节这一列最下面一张卡的下方。 */
+  const nextSlot = useCallback(
+    async (sourceId: string) => {
+      const nodes = await reader.listNodes();
+      const chapterNode = nodes.find((n) => n.meta.type === "chapter" && n.meta.anchor?.sourceId === sourceId);
+      const x = chapterNode?.x ?? 0;
+      const column = nodes.filter((n) => n.meta.type !== "group" && n.x < x + (chapterNode?.width ?? 320) && n.x + n.width > x);
+      const y = Math.max((chapterNode?.y ?? 0) + (chapterNode?.height ?? 120), ...column.map((n) => n.y + n.height)) + STACK_GAP;
+      return { x, y };
+    },
+    [reader],
+  );
+
+  /** 钉到画布：把就地卡的结果变成摘录卡 + 回答卡（已完成）。 */
+  const pinInline = useCallback(async () => {
+    const req = inlineReq.current;
+    if (!req || !inline || inline.status !== "done" || !editor) return;
+    const { x, y } = await nextSlot(req.anchor.sourceId);
+    const e = CARD_SIZE.excerpt!;
+    const a = CARD_SIZE.answer!;
+    const excerpt = await reader.createNode({ type: "excerpt", x, y, width: e.w, height: e.h, anchor: req.anchor, text: req.anchor.quote.exact });
+    const answer = await reader.createNode({
+      type: "answer",
+      x,
+      y: y + e.h + STACK_GAP,
+      width: a.w,
+      height: a.h,
+      createdBy: "ai",
+      status: "done",
+      text: inline.text,
+      body: inline.text,
+      label: req.action.name,
+    });
+    await reader.connect(excerpt.id, answer.id, "derived");
+    nodesRef.current = await reader.listNodes();
+    syncShapes(editor, nodesRef.current, await reader.listEdges(), book);
+    editor.select(shapeIdOf(answer.id));
+    save();
+    closeInline();
+  }, [inline, editor, reader, book, save, nextSlot, closeInline]);
+
   const runAction = useCallback(
     async (actionId: string) => {
       if (!chapter || !selection || !editor) return;
@@ -341,6 +444,14 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
         }
       }
       const anchor = markdownAdapter.selectionToAnchor(chapter.doc, { kind: "text", ...selection });
+      if (streams && action && action.placement === "inline") {
+        const part = markdownAdapter.extract(chapter.doc, anchor);
+        const message = part.kind === "text" ? actionUserMessage(action, part) : anchor.quote.exact;
+        setSelection(null);
+        window.getSelection()?.removeAllRanges();
+        runInline(action, anchor, message);
+        return;
+      }
       const nodes = await reader.listNodes();
       const chapterNode = nodes.find((n) => n.meta.type === "chapter" && n.meta.anchor?.sourceId === chapter.doc.sourceId);
       const x = chapterNode?.x ?? 0;
@@ -381,7 +492,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
         void streamAnswer(answerId, action, message);
       }
     },
-    [chapter, selection, editor, reader, save, book, streamAnswer],
+    [chapter, selection, editor, reader, save, book, streamAnswer, runInline],
   );
 
   return (
@@ -446,6 +557,17 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
               </button>
             ))}
           </div>
+        )}
+        {inline && (
+          <InlineCard
+            card={inline}
+            onPin={() => void pinInline()}
+            onClose={closeInline}
+            onRetry={() => {
+              const r = inlineReq.current;
+              if (r) runInline(r.action, r.anchor, r.message);
+            }}
+          />
         )}
         {chapter ? (
           <SourceReader doc={chapter.doc} resolveAsset={chapter.resolveAsset} onSelect={setSelection} />

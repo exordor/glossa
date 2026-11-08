@@ -16,6 +16,7 @@
     },
     "depth": { "enum": ["brief", "points", "steps"] },
     "usesLLM": { "type": "boolean" },
+    "placement": { "enum": ["canvas", "inline"], "description": "inline = 在原文旁就地弹卡，可钉到画布；默认 canvas" },
     "output": { "type": "string", "description": "结构化输出的 JSON Schema 路径（第 5c 步启用）" }
   },
   "additionalProperties": true
