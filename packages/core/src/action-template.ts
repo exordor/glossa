@@ -51,6 +51,8 @@ export function parseActionTemplate(text: string, file = "action.md"): ActionTem
     usesLLM: fm.usesLLM as boolean,
     prompt,
   };
+  if (fm.placement !== undefined && fm.placement !== "canvas" && fm.placement !== "inline") fail("placement 必须是 canvas 或 inline");
+  if (fm.placement === "inline") t.placement = "inline";
   if (typeof fm.output === "string") t.output = fm.output;
   return t;
 }

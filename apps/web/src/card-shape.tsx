@@ -4,6 +4,7 @@
  */
 import { HTMLContainer, Rectangle2d, ShapeUtil, T, type TLShape } from "tldraw";
 import { Icon, type IconName } from "./icons";
+import { MarkdownCompact } from "./mini-markdown";
 
 export const CARD_TYPE = "rd-card";
 
@@ -189,7 +190,11 @@ export class CardShapeUtil extends ShapeUtil<CardShape> {
               {p.quotePost}
             </p>
           )}
-          {p.body && <p className="rc-card-body">{p.body}</p>}
+          {p.body && (
+            <p className="rc-card-body">
+              <MarkdownCompact text={p.body} />
+            </p>
+          )}
         </article>
       </HTMLContainer>
     );

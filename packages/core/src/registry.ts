@@ -18,6 +18,8 @@ export interface ActionTemplate {
   prompt: string;
   /** 结构化输出的 JSON Schema 路径（第 5c 步启用）。 */
   output?: string;
+  /** 结果放哪：canvas = 摘录卡 + 回答卡（默认）；inline = 在原文旁就地弹卡，需要时再「钉到画布」。 */
+  placement?: "canvas" | "inline";
 }
 
 export type ModelAlias = "fast" | "smart" | "vision" | "image";

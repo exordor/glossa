@@ -21,6 +21,8 @@ describe("动作模板", () => {
       const fm = parse(/^---\n([\s\S]*?)\n---/.exec(text)![1]!);
       expect(validate(fm), `${f}: ${JSON.stringify(validate.errors)}`).toBe(true);
       if (t.usesLLM) expect(t.prompt.length).toBeGreaterThan(20);
+      // 词义、拆句就地弹卡；解释、提问上画布
+      expect(t.placement === "inline").toBe(["define", "parse-sentence"].includes(t.id));
     }
   });
 
@@ -32,6 +34,8 @@ describe("动作模板", () => {
     expect(bad(ok.replace("input: [word]", "input: []"))).toThrow(ActionTemplateError);
     expect(bad(ok.replace("schemaVersion: 1", "schemaVersion: 2"))).toThrow(/schemaVersion/);
     expect(bad(ok, "")).toThrow(/提示词/);
+    expect(bad(`${ok}\nplacement: popup`)).toThrow(/placement/);
+    expect(parseActionTemplate(`---\n${ok}\nplacement: inline\n---\n提示词`).placement).toBe("inline");
     expect(() => parseActionTemplate("没有 front matter", "y.md")).toThrow(/y\.md：缺少 front matter/);
   });
 

@@ -108,3 +108,60 @@
   .rc-card[data-type="note"] .rc-card-quote,
   .rc-card[data-type="note"] .rc-card-body { -webkit-line-clamp: 2; }
 }
+
+@layer base {
+  /* 就地卡：阅读器顶部，跟随滚动 */
+  .inline-card {
+    position: sticky;
+    top: var(--rd-space-2);
+    z-index: var(--rd-z-popover);
+    display: flex;
+    flex-direction: column;
+    gap: var(--rd-space-2);
+    margin: 0 0 var(--rd-space-4);
+    padding: var(--rd-space-3) var(--rd-space-3) var(--rd-space-3) calc(var(--rd-space-3) + var(--rd-stroke-card-bar));
+    border: var(--rd-stroke-contain) solid var(--rd-border);
+    border-radius: var(--rd-radius-md);
+    background: var(--rd-surface-raised);
+    box-shadow: var(--rd-shadow-popover);
+    color: var(--rd-ink);
+    font-family: var(--rd-font-ui);
+  }
+  .inline-card::before {
+    content: ""; position: absolute; left: calc(-1 * var(--rd-stroke-contain)); top: calc(-1 * var(--rd-stroke-contain)); bottom: calc(-1 * var(--rd-stroke-contain));
+    width: var(--rd-stroke-card-bar); border-radius: var(--rd-radius-md) 0 0 var(--rd-radius-md); background: var(--rd-ai);
+  }
+  .inline-card[data-state="failed"] { border-color: var(--rd-danger); }
+  .inline-card-head { display: flex; align-items: center; gap: var(--rd-space-1); min-width: 0; }
+  .inline-card-head > .rc-icon:first-child { color: var(--rd-ai); }
+  .inline-card-title { font: var(--rd-type-label); flex: none; }
+  .inline-card-quote {
+    font: var(--rd-type-caption); color: var(--rd-ink-muted); flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .inline-card-spin { color: var(--rd-ai); animation: rc-spin 900ms linear infinite; }
+  .inline-card-body {
+    font: var(--rd-type-card-body); overflow-wrap: anywhere;
+    max-height: calc(var(--rd-size-popover) * 1.2); overflow: auto;
+  }
+  .inline-card-wait { margin: 0; font: var(--rd-type-caption); color: var(--rd-ink-muted); }
+  .inline-card-error {
+    display: flex; gap: var(--rd-space-1); align-items: flex-start; margin: 0;
+    padding: var(--rd-space-1) var(--rd-space-2); border-radius: var(--rd-radius-xs);
+    font: var(--rd-type-caption); color: var(--rd-danger-ink); background: var(--rd-danger-soft);
+  }
+  .inline-card-foot { display: flex; justify-content: flex-end; gap: var(--rd-space-2); }
+  .inline-card-foot .btn { display: inline-flex; align-items: center; gap: var(--rd-space-1); }
+  @media (prefers-reduced-motion: reduce) { .inline-card-spin { animation: none; } }
+}
+
+@layer base {
+  .rc-card-body code, .inline-card-body code {
+    font-family: var(--rd-font-mono); background: var(--rd-surface-sunken);
+    border-radius: var(--rd-radius-xs); padding: 0 var(--rd-space-1);
+  }
+  .inline-card-body p, .inline-card-body ul, .inline-card-body ol { margin: 0 0 var(--rd-space-2); }
+  .inline-card-body > :last-child { margin-bottom: 0; }
+  .inline-card-body ul, .inline-card-body ol { padding-left: var(--rd-space-5); }
+  .inline-card-body p { white-space: pre-line; }
+}
