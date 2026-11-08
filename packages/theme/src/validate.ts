@@ -17,6 +17,8 @@ export interface ThemeIssue {
 const TEXT_TOKENS = ["ink", "ink-muted", "ai-ink", "user-ink", "danger-ink", "broken"];
 const MARK_TOKENS = ["source", "ai", "user", "danger", "stale", "edge", "border-strong", "focus-ring"];
 const MARK_GROUNDS = ["surface", "surface-paper", "canvas-ground"];
+/** border-strong 要对所有层 ≥ 3:1（Theming.md 第 5 版）。 */
+const ALL_GROUNDS = ["surface", "surface-paper", "surface-sunken", "surface-raised", "surface-hover", "canvas-ground"];
 
 /** 文字 token 的背景：ai-ink 在 ai-soft 上，其余在 surface 上。 */
 const TEXT_GROUND: Record<string, string> = {
@@ -45,7 +47,7 @@ export function validateTheme(defaults: TokenMap, overrides: TokenMap): { tokens
     if (r !== null && r < 4.5) revert(t, "contrast", `${t} 在 ${ground} 上 ${r.toFixed(2)}:1 < 4.5:1`);
   }
   for (const t of MARK_TOKENS) {
-    for (const g of MARK_GROUNDS) {
+    for (const g of t === "border-strong" ? ALL_GROUNDS : MARK_GROUNDS) {
       const r = contrastRatio(merged[t] ?? "", merged[g] ?? "");
       if (r !== null && r < 3) {
         revert(t, "contrast", `${t} 在 ${g} 上 ${r.toFixed(2)}:1 < 3:1`);

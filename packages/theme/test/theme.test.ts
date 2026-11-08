@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { auditContrast, buildTokensCss, defaultTokens, tierOf, validateTheme } from "../src/index.js";
 
-/** 设计系统 tokens.json 的已知对比度问题，已反馈给设计系统。 */
-const KNOWN_DEFAULT_ISSUES: string[] = ["light: border-strong 在 canvas-ground 上 2.89:1 < 3:1"];
+/** 设计系统 tokens.json 的已知对比度问题。出现新问题时先修设计系统，不要往这里加。 */
+const KNOWN_DEFAULT_ISSUES: string[] = [];
 
 describe("--rd-* 变量", () => {
   const css = buildTokensCss();
