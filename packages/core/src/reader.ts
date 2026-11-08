@@ -25,6 +25,9 @@ export interface CreateNodeInput {
   body?: string;
   createdBy?: ReaderMeta["createdBy"];
   anchor?: ReaderMeta["anchor"];
+  /** 默认 idle。AI 卡创建时就是 running，流式写完再改。 */
+  status?: ReaderMeta["status"];
+  version?: number;
   parentQA?: string;
   withinNodeId?: string;
 }
@@ -56,11 +59,12 @@ export class Reader {
     const meta: ReaderMeta = {
       schemaVersion: SCHEMA_VERSION,
       type: input.type,
-      status: "idle",
+      status: input.status ?? "idle",
       createdBy: input.createdBy ?? "user",
       createdAt: new Date().toISOString(),
     };
     if (input.anchor) meta.anchor = input.anchor;
+    if (input.version !== undefined) meta.version = input.version;
     if (input.parentQA) meta.parentQA = input.parentQA;
     if (input.withinNodeId) meta.withinNodeId = input.withinNodeId;
     const node: ReaderNode = { id: newId(), x: input.x, y: input.y, width: input.width, height: input.height, meta };
@@ -113,8 +117,11 @@ export class Reader {
     return readView(this.vault);
   }
 
-  async saveView(view: Omit<ViewState, "schemaVersion">): Promise<void> {
-    await writeView(this.vault, view);
+  /** 合并写入：只传要改的字段，没传的保留原值。 */
+  async saveView(view: Partial<Omit<ViewState, "schemaVersion">>): Promise<void> {
+    const prev = await readView(this.vault);
+    const { schemaVersion: _, ...rest } = prev ?? { schemaVersion: 0 };
+    await writeView(this.vault, { ...rest, ...view });
   }
 
   async save(): Promise<void> {

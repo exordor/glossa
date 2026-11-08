@@ -1,0 +1,87 @@
+/**
+ * 设计系统的图标：一律用语义名，底层是 Lucide v0.460.0（lucide-react 锁同一版本）。
+ * 映射表与设计系统 bundle.js 的 LIST 一致；换图标只改这里。尺寸只有 16（描边 1.75）和 20（描边 1.5）。
+ */
+import type { LucideIcon } from "lucide-react";
+import { ArrowRight, ArrowUpRight, BookA, BookOpen, Bot, ChartColumn, ChevronDown, ChevronRight, CircleAlert, ClockAlert, Columns2, Copy, CornerDownLeft, Ellipsis, Eye, EyeOff, Focus, FoldVertical, Gauge, GitBranch, GraduationCap, Hand, History, Image, Keyboard, Languages, Layers, Lightbulb, Link2Off, List, ListChecks, ListOrdered, ListPlus, ListTree, LoaderCircle, Locate, LocateFixed, MessageCircleQuestion, MessageSquareText, Moon, MousePointer2, Network, NotebookPen, PanelLeft, PanelRight, PenLine, Pilcrow, Pin, Plus, Redo2, RotateCw, Scan, Search, Settings, Sigma, Sparkles, SquareDashed, SquareDashedMousePointer, StickyNote, Sun, TableOfContents, TextQuote, Undo2, WandSparkles, Workflow, X, ZoomIn, ZoomOut } from "lucide-react";
+
+export const ICONS = {
+  "group-source": BookOpen,
+  "group-ai": Sparkles,
+  "group-user": PenLine,
+  "agent": Bot,
+  "node-chapter": BookOpen,
+  "node-excerpt": TextQuote,
+  "node-image": Image,
+  "node-operation": WandSparkles,
+  "node-answer": MessageSquareText,
+  "node-note": StickyNote,
+  "node-group": SquareDashed,
+  "act-word": BookA,
+  "act-split": ListTree,
+  "act-ask": MessageCircleQuestion,
+  "act-explain": Lightbulb,
+  "act-annotate": NotebookPen,
+  "act-more": Ellipsis,
+  "act-expand": GitBranch,
+  "act-summary": ListChecks,
+  "act-compare": Columns2,
+  "act-visualize": Network,
+  "act-style": Pilcrow,
+  "act-translate": Languages,
+  "act-skim": Gauge,
+  "act-concept": GraduationCap,
+  "act-formula": Sigma,
+  "act-figure": ChartColumn,
+  "act-boxselect": SquareDashedMousePointer,
+  "st-running": LoaderCircle,
+  "st-failed": CircleAlert,
+  "st-retry": RotateCw,
+  "st-stale": ClockAlert,
+  "st-broken": Link2Off,
+  "locate": LocateFixed,
+  "pin": Pin,
+  "deeper": ListPlus,
+  "depth-points": List,
+  "depth-steps": ListOrdered,
+  "context": Layers,
+  "expand-graph": Workflow,
+  "tool-select": MousePointer2,
+  "tool-hand": Hand,
+  "tool-note": StickyNote,
+  "tool-group": SquareDashed,
+  "zoom-in": ZoomIn,
+  "zoom-out": ZoomOut,
+  "zoom-fit": Scan,
+  "follow": Locate,
+  "focus-mode": Focus,
+  "fold": FoldVertical,
+  "tour": History,
+  "new-card": ArrowRight,
+  "panel-left": PanelLeft,
+  "panel-right": PanelRight,
+  "toc": TableOfContents,
+  "search": Search,
+  "undo": Undo2,
+  "redo": Redo2,
+  "settings": Settings,
+  "theme-light": Sun,
+  "theme-dark": Moon,
+  "keyboard": Keyboard,
+  "close": X,
+  "chevron-right": ChevronRight,
+  "chevron-down": ChevronDown,
+  "send": CornerDownLeft,
+  "add": Plus,
+  "copy": Copy,
+  "open-external": ArrowUpRight,
+  "show": Eye,
+  "hide": EyeOff,
+} satisfies Record<string, LucideIcon>;
+
+export type IconName = keyof typeof ICONS;
+
+export function Icon({ name, size = 16, className }: { name: IconName; size?: 16 | 20; className?: string }) {
+  const C = ICONS[name];
+  return <C size={size} strokeWidth={size === 16 ? 1.75 : 1.5} className={className ? `rc-icon ${className}` : "rc-icon"} aria-hidden="true" />;
+}

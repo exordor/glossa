@@ -3,12 +3,32 @@ import { type Editor, Tldraw } from "tldraw";
 import type { ReaderNode, SourceDoc } from "@reader/core";
 import { markdownAdapter } from "@reader/source-markdown";
 import { loadChapterAssets } from "./assets";
-import { nodeIdOf, shapeIdOf, syncShapes } from "./canvas-sync";
+import { CARD_SIZE, nodeIdOf, shapeIdOf, syncShapes } from "./canvas-sync";
+import { CardShapeUtil } from "./card-shape";
+import { EdgeShapeUtil } from "./edge-shape";
+import { seedDemoCards } from "./demo-cards";
 import type { BookSession } from "./session";
 import { SourceReader, type TextRange } from "./SourceReader";
 
-/** 新卡放在来源（章节卡）下方向下堆叠。 */
-const STACK = { top: 160, step: 140 } as const;
+/** 新卡放在来源（章节卡）这一列最下面一张卡的下方。 */
+const STACK_GAP = 40;
+const SHAPE_UTILS = [CardShapeUtil, EdgeShapeUtil];
+
+/** 跳回原文：滚到锚点所在的文字并闪一下。 */
+function flashRange(root: HTMLElement, start: number, end: number) {
+  const spans = [...root.querySelectorAll<HTMLElement>("[data-s]")].filter(
+    (sp) => Number(sp.dataset.e) > start && Number(sp.dataset.s) < end,
+  );
+  const first = spans[0];
+  if (!first) return false;
+  first.scrollIntoView({ block: "center", behavior: "smooth" });
+  for (const sp of spans) {
+    sp.classList.remove("rc-flash");
+    void sp.offsetWidth; // 重新触发动画
+    sp.classList.add("rc-flash");
+  }
+  return true;
+}
 
 const cameraOf = (editor: Editor) => {
   const { x, y, z } = editor.getCamera();
@@ -58,12 +78,14 @@ export function BookView({ session, onClose }: { session: BookSession; onClose: 
     let disposed = false;
     const cleanups: Array<() => void> = [];
     void (async () => {
+      if (!session.persistent) await seedDemoCards(reader, book);
       nodesRef.current = await reader.listNodes();
+      const edges = await reader.listEdges();
       if (disposed) return;
-      syncShapes(editor, nodesRef.current);
+      syncShapes(editor, nodesRef.current, edges, book);
       const view = await reader.getView();
       if (view?.camera) editor.setCamera(view.camera);
-      else editor.zoomToFit({ animation: { duration: 0 } });
+      else requestAnimationFrame(() => editor.zoomToFit({ animation: { duration: 0 } }));
 
       cleanups.push(
         editor.store.listen(
@@ -75,6 +97,7 @@ export function BookView({ session, onClose }: { session: BookSession; onClose: 
           { source: "user", scope: "document" },
         ),
       );
+      cameraReady.current = true;
       const saveCamera = debounce(() => void reader.saveView({ camera: cameraOf(editor), ...(openSourceRef.current ? { openSourceId: openSourceRef.current } : {}) }), 500);
       let lastSel = "";
       cleanups.push(
@@ -97,9 +120,11 @@ export function BookView({ session, onClose }: { session: BookSession; onClose: 
       disposed = true;
       cleanups.forEach((c) => c());
     };
-  }, [editor, reader, save]);
+  }, [editor, reader, save, session.persistent, book]);
 
   const openSourceRef = useRef<string | null>(null);
+  /** 视口恢复之前不保存视口，否则会把默认视口写进 view.json。 */
+  const cameraReady = useRef(false);
   openSourceRef.current = openSourceId;
 
   // 阅读器：读文件 → 解析 → 加载图片
@@ -116,13 +141,48 @@ export function BookView({ session, onClose }: { session: BookSession; onClose: 
       dispose = assets.dispose;
       setChapter({ doc, path: src.path, resolveAsset: assets.resolveAsset });
       setSelection(null);
-      void reader.saveView({ ...(editor ? { camera: cameraOf(editor) } : {}), openSourceId });
+      void reader.saveView({ ...(editor && cameraReady.current ? { camera: cameraOf(editor) } : {}), openSourceId });
     })();
     return () => {
       alive = false;
       dispose?.();
     };
   }, [openSourceId, reader, editor]);
+
+  // 卡片上的「跳回原文」：打开对应章节，三层定位找到原文，滚过去闪一下。
+  const [locate, setLocate] = useState<{ nodeId: string; seq: number } | null>(null);
+  useEffect(() => {
+    let seq = 0;
+    const onLocate = (e: Event) => {
+      const nodeId = (e as CustomEvent<{ nodeId: string }>).detail.nodeId;
+      const node = nodesRef.current.find((n) => n.id === nodeId);
+      if (!node?.meta.anchor) return;
+      setOpenSourceId(node.meta.anchor.sourceId);
+      setLocate({ nodeId, seq: ++seq });
+    };
+    window.addEventListener("glossa:locate", onLocate);
+    return () => window.removeEventListener("glossa:locate", onLocate);
+  }, []);
+  useEffect(() => {
+    if (!locate || !chapter) return;
+    const anchor = nodesRef.current.find((n) => n.id === locate.nodeId)?.meta.anchor;
+    if (!anchor || anchor.sourceId !== chapter.doc.sourceId) return;
+    const loc = markdownAdapter.resolve(chapter.doc, anchor);
+    if (!loc) {
+      setLocate(null);
+      return;
+    }
+    // 原文异步渲染，等文字 span 出现再滚动（最多约 2 秒）。
+    let tries = 0;
+    let raf = 0;
+    const tick = () => {
+      const root = document.querySelector<HTMLElement>(".reader-body");
+      if (root && flashRange(root, loc.start, loc.end)) return setLocate(null);
+      if (++tries < 120) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [locate, chapter]);
 
   const runAction = useCallback(
     async (actionId: string) => {
@@ -131,23 +191,24 @@ export function BookView({ session, onClose }: { session: BookSession; onClose: 
       const anchor = markdownAdapter.selectionToAnchor(chapter.doc, { kind: "text", ...selection });
       const nodes = await reader.listNodes();
       const chapterNode = nodes.find((n) => n.meta.type === "chapter" && n.meta.anchor?.sourceId === chapter.doc.sourceId);
-      const siblings = nodes.filter((n) => n.meta.type !== "chapter" && n.meta.anchor?.sourceId === chapter.doc.sourceId);
       const x = chapterNode?.x ?? 0;
-      const y = (chapterNode?.y ?? 0) + STACK.top + siblings.length * STACK.step;
+      const column = nodes.filter((n) => n.meta.type !== "group" && n.x < x + (chapterNode?.width ?? 320) && n.x + n.width > x);
+      const y = Math.max((chapterNode?.y ?? 0) + (chapterNode?.height ?? 120), ...column.map((n) => n.y + n.height)) + STACK_GAP;
+      const size = action?.usesLLM ? CARD_SIZE.excerpt! : CARD_SIZE.note!;
       // 第 5 步接入 AI 之前：「批注」生成批注卡，其余动作先生成摘录卡占位。
       const node = await reader.createNode(
         action?.usesLLM
-          ? { type: "excerpt", x, y, width: 320, height: 120, anchor, text: `${action.name}：${anchor.quote.exact}` }
-          : { type: "note", x, y, width: 240, height: 120, anchor, text: anchor.quote.exact, body: "" },
+          ? { type: "excerpt", x, y, width: size.w, height: size.h, anchor, text: anchor.quote.exact }
+          : { type: "note", x, y, width: size.w, height: size.h, anchor, text: anchor.quote.exact, body: "" },
       );
       nodesRef.current = await reader.listNodes();
-      syncShapes(editor, nodesRef.current);
+      syncShapes(editor, nodesRef.current, await reader.listEdges(), book);
       editor.select(shapeIdOf(node.id));
       setSelection(null);
       window.getSelection()?.removeAllRanges();
       save();
     },
-    [chapter, selection, editor, reader, save],
+    [chapter, selection, editor, reader, save, book],
   );
 
   return (
@@ -173,7 +234,7 @@ export function BookView({ session, onClose }: { session: BookSession; onClose: 
         </ol>
       </nav>
       <main className="canvas">
-        <Tldraw onMount={setEditor} />
+        <Tldraw shapeUtils={SHAPE_UTILS} onMount={setEditor} />
         <div className="canvas-status" data-rc="toolbar">
           {session.name}
           {!session.persistent && " · 示例书，改动不保存"}

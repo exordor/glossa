@@ -81,5 +81,8 @@ describe("导入一本书", () => {
     expect((await r.readSource(book.sources[1]!.id))?.text).toContain("Multi-head attention");
     await r.saveView({ camera: { x: 1, y: 2, z: 0.5 }, openSourceId: book.sources[1]!.id });
     expect((await r.getView())?.camera).toEqual({ x: 1, y: 2, z: 0.5 });
+    // 只改打开的章节时，视口保留
+    await r.saveView({ openSourceId: book.sources[0]!.id });
+    expect(await r.getView()).toMatchObject({ camera: { x: 1, y: 2, z: 0.5 }, openSourceId: book.sources[0]!.id });
   });
 });
