@@ -13,7 +13,7 @@ export interface NodeFile {
 
 const META_KEY_ORDER = [
   "id", "schemaVersion", "type", "status", "createdBy", "createdAt",
-  "parentQA", "withinNodeId", "version", "pinned", "anchor",
+  "parentQA", "withinNodeId", "version", "pinned", "depth", "anchor", "citations",
 ] as const;
 
 export function serializeNodeFile(file: NodeFile): string {
