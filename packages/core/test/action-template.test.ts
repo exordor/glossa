@@ -9,7 +9,7 @@ const ROOT = join(import.meta.dirname, "../../..");
 const DIR = join(ROOT, "templates/actions");
 const files = readdirSync(DIR).filter((f) => f.endsWith(".md"));
 const schema = JSON.parse(readFileSync(join(ROOT, "schemas/action-template.schema.json"), "utf8"));
-const validate = new (Ajv2020 as unknown as typeof Ajv2020.default)({ strict: false }).compile(schema);
+const validate = new Ajv2020({ strict: false }).compile(schema);
 
 describe("动作模板", () => {
   it("仓库里的模板都能解析，并符合 schema；id 与文件名一致", () => {
