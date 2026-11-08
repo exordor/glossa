@@ -150,7 +150,7 @@
     padding: var(--rd-space-1) var(--rd-space-2); border-radius: var(--rd-radius-xs);
     font: var(--rd-type-caption); color: var(--rd-danger-ink); background: var(--rd-danger-soft);
   }
-  .inline-card-foot { display: flex; justify-content: flex-end; gap: var(--rd-space-2); }
+  .inline-card-foot { display: flex; align-items: center; justify-content: flex-end; gap: var(--rd-space-2); }
   .inline-card-foot .btn { display: inline-flex; align-items: center; gap: var(--rd-space-1); }
   @media (prefers-reduced-motion: reduce) { .inline-card-spin { animation: none; } }
 }
@@ -164,4 +164,37 @@
   .inline-card-body > :last-child { margin-bottom: 0; }
   .inline-card-body ul, .inline-card-body ol { padding-left: var(--rd-space-5); }
   .inline-card-body p { white-space: pre-line; }
+}
+
+@layer base {
+  /* 回答深度切换：一句话 / 要点 / 步骤 */
+  .rc-seg {
+    display: inline-flex; margin-right: auto; padding: var(--rd-stroke-contain);
+    border: var(--rd-stroke-contain) solid var(--rd-border); border-radius: var(--rd-radius-sm);
+    background: var(--rd-surface-sunken);
+  }
+  .rc-seg-btn {
+    height: var(--rd-size-control-sm); padding: 0 var(--rd-space-2); border: 0; border-radius: var(--rd-radius-xs);
+    background: transparent; color: var(--rd-ink-muted); font: var(--rd-type-caption); cursor: pointer;
+  }
+  .rc-seg-btn:hover:not([disabled]) { color: var(--rd-ink); }
+  .rc-seg-btn[aria-pressed="true"] { background: var(--rd-surface); color: var(--rd-ink); box-shadow: var(--rd-shadow-card); }
+  .rc-seg-btn[disabled] { cursor: not-allowed; color: var(--rd-ink-disabled); }
+  .rc-seg-btn[disabled][aria-pressed="true"] { color: var(--rd-ink-muted); }
+
+  /* 引用校验：没在原文里找到的原话加虚下划线 */
+  .md-cite[data-verified="false"] {
+    text-decoration: underline dotted var(--rd-stale); text-decoration-thickness: var(--rd-stroke-underline);
+    text-underline-offset: var(--rd-space-1); cursor: help;
+  }
+  .inline-card-cite, .rc-card-cite {
+    display: flex; align-items: center; gap: var(--rd-space-1); margin: 0;
+    font: var(--rd-type-caption); color: var(--rd-ink-muted);
+  }
+  .inline-card-cite[data-warn="true"], .rc-card-cite[data-warn="true"] { color: var(--rd-stale); }
+  .rc-card-cite { margin-top: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* 回答卡：结论做标题，下面是要点 / 步骤 */
+  .rc-card[data-type="answer"] .rc-card-title { -webkit-line-clamp: 2; }
+  .rc-card[data-type="answer"] .rc-card-title + .rc-card-body { -webkit-line-clamp: 2; flex: none; }
 }

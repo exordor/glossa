@@ -6,6 +6,7 @@ import { type Editor, type TLShapeId, createShapeId } from "tldraw";
 import { NODE_GROUP, type Book, type ReaderEdge, type ReaderNode } from "@reader/core";
 import { CARD_TYPE, type CardProps } from "./card-shape";
 import { EDGE_TYPE } from "./edge-shape";
+import { answerParts } from "./answer-card";
 
 export const shapeIdOf = (nodeId: string): TLShapeId => createShapeId(nodeId);
 export const nodeIdOf = (shapeId: string): string => shapeId.replace(/^shape:/, "");
@@ -16,7 +17,7 @@ export const CARD_SIZE: Record<string, { w: number; h: number }> = {
   chapter: { w: 320, h: 88 },
   excerpt: { w: 320, h: 120 },
   operation: { w: 280, h: 96 },
-  answer: { w: 360, h: 148 },
+  answer: { w: 360, h: 164 },
   note: { w: 240, h: 140 },
   group: { w: 400, h: 300 },
 };
@@ -60,6 +61,8 @@ export function cardPropsOf(node: ReaderNode, book: Book): CardProps {
     quotePost: "",
     body: "",
     hasAnchor: Boolean(a),
+    cite: "",
+    citeWarn: false,
   };
   switch (t) {
     case "chapter":
@@ -69,7 +72,7 @@ export function cardPropsOf(node: ReaderNode, book: Book): CardProps {
     case "operation":
       return { ...base, crumb: node.label ?? "提问", title: node.text ?? "" };
     case "answer":
-      return { ...base, crumb: node.meta.version ? `回答 · 版本 ${node.meta.version}` : "回答", body: node.text ?? "" };
+      return { ...base, crumb: node.meta.version ? `回答 · 版本 ${node.meta.version}` : "回答", ...answerParts(node) };
     case "note": {
       // 有锚点：显示原文句（选中部分加粗）+ 我的批注；批注为空或等于原文时只显示原文。
       const own = node.text && node.text !== a?.quote.exact ? node.text : "";

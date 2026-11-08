@@ -96,6 +96,10 @@ export interface ReaderMeta {
   version?: number;
   /** 用户拖过之后不再自动布局。 */
   pinned?: boolean;
+  /** 回答卡：生成时用的回答深度。 */
+  depth?: "brief" | "points" | "steps";
+  /** 回答卡：回答里引用的原话及是否在原文里找到（见 answer.ts）。 */
+  citations?: { quote: string; verified: boolean }[];
 }
 
 export type EdgeRole = "context" | "derived" | "reference";

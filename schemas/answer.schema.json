@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/exordor/glossa/schemas/answer.schema.json",
+  "title": "结构化回答（@reader/core answerFromObject 的结果）",
+  "description": "模型按 answerSchema(depth) 输出 JSON，程序规整成这个形状。depth = brief 只有 summary；points / steps 各带一个列表。",
+  "type": "object",
+  "required": ["schemaVersion", "depth", "summary", "citations"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "depth": { "enum": ["brief", "points", "steps"] },
+    "summary": { "type": "string", "description": "一句话结论" },
+    "points": { "type": "array", "items": { "type": "string" } },
+    "steps": { "type": "array", "items": { "type": "string" } },
+    "citations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["quote", "verified"],
+        "additionalProperties": false,
+        "properties": { "quote": { "type": "string" }, "verified": { "type": "boolean", "description": "是否在原文里找到" } }
+      }
+    }
+  },
+  "not": { "required": ["points", "steps"] }
+}

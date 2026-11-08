@@ -32,6 +32,8 @@ export interface CreateNodeInput {
   version?: number;
   parentQA?: string;
   withinNodeId?: string;
+  depth?: ReaderMeta["depth"];
+  citations?: ReaderMeta["citations"];
 }
 
 export interface ReaderOptions {
@@ -81,6 +83,8 @@ export class Reader {
     if (input.version !== undefined) meta.version = input.version;
     if (input.parentQA) meta.parentQA = input.parentQA;
     if (input.withinNodeId) meta.withinNodeId = input.withinNodeId;
+    if (input.depth) meta.depth = input.depth;
+    if (input.citations) meta.citations = structuredClone(input.citations);
     const node: ReaderNode = { id: newId(), x: input.x, y: input.y, width: input.width, height: input.height, meta };
     if (input.text !== undefined) node.text = input.text;
     if (input.label !== undefined) node.label = input.label;
@@ -96,7 +100,14 @@ export class Reader {
    */
   async updateNode(
     id: string,
-    patch: { text?: string; label?: string; status?: ReaderMeta["status"]; body?: string },
+    patch: {
+      text?: string;
+      label?: string;
+      status?: ReaderMeta["status"];
+      body?: string;
+      depth?: ReaderMeta["depth"];
+      citations?: ReaderMeta["citations"];
+    },
   ): Promise<ReaderNode | null> {
     const node = this.require().nodes.find((n) => n.id === id);
     if (!node) return null;
@@ -104,6 +115,8 @@ export class Reader {
     if (patch.label !== undefined) node.label = patch.label;
     if (patch.status !== undefined) node.meta.status = patch.status;
     if (patch.body !== undefined) this.bodies[id] = patch.body;
+    if (patch.depth !== undefined) node.meta.depth = patch.depth;
+    if (patch.citations !== undefined) node.meta.citations = structuredClone(patch.citations);
     return structuredClone(node);
   }
 

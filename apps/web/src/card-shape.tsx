@@ -23,6 +23,9 @@ export interface CardProps {
   quotePost: string;
   body: string;
   hasAnchor: boolean;
+  /** 回答卡底部的引用校验说明；空串不显示。 */
+  cite: string;
+  citeWarn: boolean;
 }
 
 declare module "tldraw" {
@@ -78,6 +81,8 @@ export class CardShapeUtil extends ShapeUtil<CardShape> {
     quotePost: T.string,
     body: T.string,
     hasAnchor: T.boolean,
+    cite: T.string,
+    citeWarn: T.boolean,
   };
 
   override canResize = () => false;
@@ -100,6 +105,8 @@ export class CardShapeUtil extends ShapeUtil<CardShape> {
       quotePost: "",
       body: "",
       hasAnchor: false,
+      cite: "",
+      citeWarn: false,
     };
   }
 
@@ -193,6 +200,12 @@ export class CardShapeUtil extends ShapeUtil<CardShape> {
           {p.body && (
             <p className="rc-card-body">
               <MarkdownCompact text={p.body} />
+            </p>
+          )}
+          {p.cite && (
+            <p className="rc-card-cite" data-warn={p.citeWarn} title={p.cite}>
+              <Icon name="node-excerpt" />
+              {p.cite}
             </p>
           )}
         </article>

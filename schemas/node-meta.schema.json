@@ -15,6 +15,16 @@
     "withinNodeId": { "type": "string" },
     "version": { "type": "integer", "minimum": 1 },
     "pinned": { "type": "boolean" },
+    "depth": { "enum": ["brief", "points", "steps"], "description": "回答卡：回答深度" },
+    "citations": {
+      "type": "array",
+      "description": "回答卡：回答里引用的原话及是否在原文里找到",
+      "items": {
+        "type": "object",
+        "required": ["quote", "verified"],
+        "properties": { "quote": { "type": "string" }, "verified": { "type": "boolean" } }
+      }
+    },
     "anchor": { "$ref": "#/$defs/anchor" }
   },
   "$defs": {
