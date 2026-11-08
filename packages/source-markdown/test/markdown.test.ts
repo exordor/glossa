@@ -57,4 +57,17 @@ describe("Markdown 适配器", () => {
     expect(part.sentence).toMatch(/^The Transformer uses scaled dot-product attention/);
     expect(part.sentence!.length).toBeLessThan(part.paragraph!.length);
   });
+
+  it("extract 给出同一小节里前后各最多 2 块（不跨标题）", async () => {
+    const doc = await markdownAdapter.parse("ch1", chapter);
+    const phrase = "scaled dot-product attention";
+    const start = chapter.indexOf(phrase);
+    const part = markdownAdapter.extract(doc, markdownAdapter.selectionToAnchor(doc, { kind: "text", start, end: start + phrase.length }));
+    if (part.kind !== "text") throw new Error("expected text");
+    // 1.2 的第一段：前面是 1.1 的内容，不算；后面是公式和代码块。
+    expect(part.before).toBeUndefined();
+    expect(part.after?.length).toBe(2);
+    expect(part.after?.[0]).toMatch(/^\$\$/);
+    expect(part.after?.[1]).toMatch(/^```python/);
+  });
 });

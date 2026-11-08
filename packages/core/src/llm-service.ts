@@ -152,6 +152,19 @@ export class LlmService {
   }
 
   /**
+   * 上下文预算（token）：设置里的固定值；否则取别名对应模型上下文长度 × 比例（默认 1/4）；
+   * 模型上下文长度未知时按 128k 算。
+   */
+  async contextBudget(alias: ModelAlias): Promise<number> {
+    const s = await this.current();
+    if (s.llm.budget.contextTokens) return s.llm.budget.contextTokens;
+    const ps = await this.providerSettings();
+    const model = ps?.aliases[alias]?.model;
+    const window = (model && ps?.capabilities?.[model]?.contextWindow) || 131_072;
+    return Math.floor(window * s.llm.budget.contextFraction);
+  }
+
+  /**
    * 执行一次调用。永不抛异常：错误作为 { type: "error" } 分块送出。
    * 能力检查通过后（start 分块）发 run.started；结束时总是发 run.completed（ok 表示是否正常结束）。
    */

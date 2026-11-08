@@ -6,12 +6,14 @@ import {
   type AnswerDepth,
   type ReaderNode,
   type SourceDoc,
-  actionInstructions,
-  actionUserMessage,
+  type AssembledContext,
+  type ContextExcerpt,
   answerOutput,
+  assembleContext,
   newId,
 } from "@reader/core";
 import { AnswerAccumulator } from "./answer-stream";
+import { type ContextBase, contextBaseFor } from "./context-input";
 import { markdownAdapter } from "@reader/source-markdown";
 import { loadChapterAssets } from "./assets";
 import { CARD_SIZE, cardPropsOf, nodeIdOf, shapeIdOf, syncShapes } from "./canvas-sync";
@@ -23,26 +25,29 @@ import { aiReadiness, llmErrorText } from "./llm";
 import type { BookSession } from "./session";
 import { SourceReader, type TextRange } from "./SourceReader";
 import { InlineCard, type InlineCardState } from "./InlineCard";
+import { ContextPanel } from "./ContextPanel";
 
 /** 新卡放在来源（章节卡）这一列最下面一张卡的下方。 */
 const STACK_GAP = 40;
 const SHAPE_UTILS = [CardShapeUtil, EdgeShapeUtil];
 
-/** 回答卡的生成请求（重试用）：动作 + 已组装好的用户消息 + 校验引用用的原文 + 回答深度。 */
-interface AnswerRequest {
-  actionId: string;
-  message: string;
+/** 一次生成的请求：上下文输入 + 校验引用用的原文 + 回答深度 + 用户在「本次上下文」里去掉的项。 */
+interface GenRequest {
+  base: ContextBase;
   sources: string[];
   depth: AnswerDepth;
+  exclude: string[];
+}
+
+/** 回答卡的生成请求（重试、去掉某项重跑用）。 */
+interface AnswerRequest extends GenRequest {
+  actionId: string;
 }
 
 /** 就地卡的请求：钉到画布、重试、换深度要用。 */
-interface InlineRequest {
+interface InlineRequest extends GenRequest {
   action: ActionTemplate;
   anchor: Anchor;
-  message: string;
-  sources: string[];
-  depth: AnswerDepth;
 }
 
 const INTERRUPTED = "已中断";
@@ -94,6 +99,10 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
   const runsRef = useRef(new Map<string, string>());
   /** 回答卡的请求，「重试」用同一请求重新生成（只在本次会话内；重新打开书后从来源摘录卡推回）。 */
   const requestsRef = useRef(new Map<string, AnswerRequest>());
+  /** 每张回答卡最近一次的「本次上下文」。 */
+  const contextsRef = useRef(new Map<string, AssembledContext>());
+  /** 打开着的「本次上下文」面板：某张回答卡的，或就地卡的。 */
+  const [ctxPanel, setCtxPanel] = useState<{ kind: "answer"; nodeId: string; context: AssembledContext } | { kind: "inline" } | null>(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -272,12 +281,59 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
     [editor, book],
   );
 
+  /** 组装本次上下文（第 6 步）：预算按动作的模型别名取。 */
+  const assemble = useCallback(
+    async (action: ActionTemplate, req: GenRequest): Promise<AssembledContext> =>
+      assembleContext({ ...req.base, action, depth: req.depth, exclude: req.exclude, budget: await reader.llm.contextBudget(action.model) }),
+    [reader],
+  );
+
+  /** 由锚点收集上下文输入：读来源 → 三层 + 周边段落；同一段的批注、之前的问答。 */
+  const requestFor = useCallback(
+    async (anchor: Anchor, ids: { excerptNodeId?: string; answerNodeId?: string }): Promise<Omit<GenRequest, "depth">> => {
+      let doc = chapter?.doc.sourceId === anchor.sourceId ? chapter.doc : null;
+      if (!doc) {
+        const src = await reader.readSource(anchor.sourceId);
+        if (src) doc = await markdownAdapter.parse(anchor.sourceId, src.text);
+      }
+      const extracted = doc ? markdownAdapter.extract(doc, anchor) : null;
+      let part: Omit<ContextExcerpt, "nodeId"> = { selected: anchor.quote.exact, headingPath: anchor.kind === "markdown" ? anchor.headingPath : [] };
+      if (extracted?.kind === "text") {
+        const { kind: _kind, ...rest } = extracted;
+        part = rest;
+      }
+      const base = contextBaseFor({ book, anchor, part, nodes: await reader.listNodes(), edges: await reader.listEdges(), ...ids });
+      return { base, sources: [doc?.text ?? anchor.quote.exact], exclude: [] };
+    },
+    [reader, book, chapter],
+  );
+
+  /** 回答卡的请求：内存里有就用；重新打开书后从「摘录卡 → 回答卡」的 derived 边推回。 */
+  const answerRequest = useCallback(
+    async (answerId: string): Promise<AnswerRequest | null> => {
+      const mem = requestsRef.current.get(answerId);
+      if (mem) return mem;
+      const edge = (await reader.listEdges()).find((x) => x.to === answerId && x.role === "derived");
+      const from = edge && (await reader.listNodes()).find((n) => n.id === edge.from);
+      const a = from?.meta.anchor;
+      const answer = (await reader.listNodes()).find((n) => n.id === answerId);
+      const action = reader.registry.list("action").find((x) => x.name === answer?.label) ?? reader.registry.get("action", "explain");
+      if (!a || !action) return null;
+      const g = await requestFor(a, { excerptNodeId: from.id, answerNodeId: answerId });
+      return { actionId: action.id, ...g, depth: answer?.meta.depth ?? action.depth };
+    },
+    [reader, requestFor],
+  );
+
   /** 流式写回答卡：文字增量每帧最多更新一次卡片，结束时存一次盘。 */
   const streamAnswer = useCallback(
-    async (answerId: string, action: ActionTemplate, message: string, sources: string[], depth: AnswerDepth = action.depth) => {
+    async (answerId: string, action: ActionTemplate, req: GenRequest) => {
+      const { sources, depth } = req;
       const runId = newId();
       runsRef.current.set(answerId, runId);
-      requestsRef.current.set(answerId, { actionId: action.id, message, sources, depth });
+      requestsRef.current.set(answerId, { actionId: action.id, ...req });
+      const ctx = await assemble(action, req);
+      contextsRef.current.set(answerId, ctx);
       const acc = new AnswerAccumulator(depth);
       let raf = 0;
       const flush = () => {
@@ -299,8 +355,8 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
           runId,
           nodeId: answerId,
           actionId: action.id,
-          instructions: actionInstructions(action, depth),
-          messages: [{ role: "user", content: [{ type: "text", text: message }] }],
+          instructions: ctx.instructions,
+          messages: [{ role: "user", content: [{ type: "text", text: ctx.message }] }],
           output: answerOutput(depth),
         })) {
           if (acc.push(c)) {
@@ -315,19 +371,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
         if (runsRef.current.get(answerId) === runId) runsRef.current.delete(answerId);
       }
     },
-    [reader, refreshCard, save],
-  );
-
-  /** 由锚点重新组装用户消息（重开书后重试用）：读来源 → 解析 → 三层提取。 */
-  const messageFor = useCallback(
-    async (action: ActionTemplate, anchor: Anchor): Promise<{ message: string; sources: string[] }> => {
-      const src = await reader.readSource(anchor.sourceId);
-      if (!src) return { message: anchor.quote.exact, sources: [anchor.quote.exact] };
-      const doc = await markdownAdapter.parse(anchor.sourceId, src.text);
-      const part = markdownAdapter.extract(doc, anchor);
-      return { message: part.kind === "text" ? actionUserMessage(action, part) : anchor.quote.exact, sources: [src.text] };
-    },
-    [reader],
+    [reader, refreshCard, save, assemble],
   );
 
   // 失败回答卡上的「重试」：用同一请求重新生成。
@@ -336,31 +380,60 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       const answerId = (e as CustomEvent<{ nodeId: string }>).detail.nodeId;
       if (runsRef.current.has(answerId)) return;
       void (async () => {
-        let req = requestsRef.current.get(answerId);
-        if (!req) {
-          // 重新打开书后没有内存里的请求：从「来源摘录卡 → 回答卡」的 derived 边推回，动作按「解释」。
-          const edge = (await reader.listEdges()).find((x) => x.to === answerId && x.role === "derived");
-          const from = edge && (await reader.listNodes()).find((n) => n.id === edge.from);
-          const a = from?.meta.anchor;
-          if (!a) return;
-          const explain = reader.registry.get("action", "explain");
-          if (!explain) return;
-          req = { actionId: "explain", ...(await messageFor(explain, a)), depth: explain.depth };
-        }
+        const req = await answerRequest(answerId);
+        if (!req) return;
         const action = reader.registry.get("action", req.actionId);
         if (!action) return;
         refreshCard(await reader.updateNode(answerId, { status: "running", text: "" }));
-        void streamAnswer(answerId, action, req.message, req.sources, req.depth);
+        void streamAnswer(answerId, action, req);
       })();
     };
     window.addEventListener("glossa:retry", onRetry);
     return () => window.removeEventListener("glossa:retry", onRetry);
-  }, [reader, refreshCard, streamAnswer, messageFor]);
+  }, [reader, refreshCard, streamAnswer, answerRequest]);
+
+  // 回答卡上的「本次上下文」：打开面板。
+  useEffect(() => {
+    const onContext = (e: Event) => {
+      const nodeId = (e as CustomEvent<{ nodeId: string }>).detail.nodeId;
+      void (async () => {
+        let context = contextsRef.current.get(nodeId);
+        if (!context) {
+          const req = await answerRequest(nodeId);
+          const action = req && reader.registry.get("action", req.actionId);
+          if (!req || !action) return;
+          context = await assemble(action, req);
+        }
+        setCtxPanel({ kind: "answer", nodeId, context });
+      })();
+    };
+    window.addEventListener("glossa:context", onContext);
+    return () => window.removeEventListener("glossa:context", onContext);
+  }, [reader, answerRequest, assemble]);
+
+  /** 去掉某几项后重新生成这张回答卡。 */
+  const rerunAnswer = useCallback(
+    async (answerId: string, exclude: string[]) => {
+      if (runsRef.current.has(answerId)) return;
+      const req = await answerRequest(answerId);
+      const action = req && reader.registry.get("action", req.actionId);
+      if (!req || !action) return;
+      refreshCard(await reader.updateNode(answerId, { status: "running", text: "" }));
+      const run = streamAnswer(answerId, action, { ...req, exclude });
+      // 面板跟着显示新的上下文
+      setTimeout(() => {
+        const context = contextsRef.current.get(answerId);
+        if (context) setCtxPanel((p) => (p?.kind === "answer" && p.nodeId === answerId ? { ...p, context } : p));
+      }, 0);
+      await run;
+    },
+    [reader, answerRequest, refreshCard, streamAnswer],
+  );
 
   /** 就地卡：流式写进阅读器顶部的小卡，不建画布节点。同一时间只有一张，新的会取消旧的。 */
   const runInline = useCallback(
     (req: InlineRequest) => {
-      const { action, anchor, message, sources, depth } = req;
+      const { action, anchor, sources, depth } = req;
       if (inlineRun.current) void reader.llm.cancel(inlineRun.current);
       const runId = newId();
       inlineRun.current = runId;
@@ -368,6 +441,9 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       setInline({ runId, actionId: action.id, actionName: action.name, quote: anchor.quote.exact, text: "", status: "running", depth, citations: [] });
       const mine = (c: InlineCardState | null) => c?.runId === runId;
       void (async () => {
+        const ctx = await assemble(action, req);
+        if (inlineRun.current !== runId) return;
+        setInline((c) => (mine(c) ? { ...c!, context: ctx } : c));
         const acc = new AnswerAccumulator(depth);
         let raf = 0;
         const flush = () => {
@@ -378,8 +454,8 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
           alias: action.model,
           runId,
           actionId: action.id,
-          instructions: actionInstructions(action, depth),
-          messages: [{ role: "user", content: [{ type: "text", text: message }] }],
+          instructions: ctx.instructions,
+          messages: [{ role: "user", content: [{ type: "text", text: ctx.message }] }],
           output: answerOutput(depth),
         })) {
           if (acc.push(c)) {
@@ -404,7 +480,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
         }
       })();
     },
-    [reader],
+    [reader, assemble],
   );
 
   const closeInline = useCallback(() => {
@@ -480,11 +556,9 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       }
       const anchor = markdownAdapter.selectionToAnchor(chapter.doc, { kind: "text", ...selection });
       if (streams && action && action.placement === "inline") {
-        const part = markdownAdapter.extract(chapter.doc, anchor);
-        const message = part.kind === "text" ? actionUserMessage(action, part) : anchor.quote.exact;
         setSelection(null);
         window.getSelection()?.removeAllRanges();
-        runInline({ action, anchor, message, sources: [chapter.doc.text], depth: action.depth });
+        runInline({ action, anchor, ...(await requestFor(anchor, {})), depth: action.depth });
         return;
       }
       const nodes = await reader.listNodes();
@@ -522,12 +596,11 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       window.getSelection()?.removeAllRanges();
       save();
       if (answerId && action) {
-        const part = markdownAdapter.extract(chapter.doc, anchor);
-        const message = part.kind === "text" ? actionUserMessage(action, part) : anchor.quote.exact;
-        void streamAnswer(answerId, action, message, [chapter.doc.text]);
+        const g = await requestFor(anchor, { excerptNodeId: node.id, answerNodeId: answerId });
+        void streamAnswer(answerId, action, { ...g, depth: action.depth });
       }
     },
-    [chapter, selection, editor, reader, save, book, streamAnswer, runInline],
+    [chapter, selection, editor, reader, save, book, streamAnswer, runInline, requestFor],
   );
 
   return (
@@ -554,6 +627,27 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       </nav>
       <main className="canvas">
         <Tldraw shapeUtils={SHAPE_UTILS} onMount={setEditor} />
+        {ctxPanel?.kind === "answer" && (
+          <ContextPanel
+            title={nodesRef.current.find((n) => n.id === ctxPanel.nodeId)?.label ?? "回答"}
+            context={ctxPanel.context}
+            busy={runsRef.current.has(ctxPanel.nodeId)}
+            onRerun={(exclude) => void rerunAnswer(ctxPanel.nodeId, exclude)}
+            onClose={() => setCtxPanel(null)}
+          />
+        )}
+        {ctxPanel?.kind === "inline" && inline?.context && (
+          <ContextPanel
+            title={`${inline.actionName} · ${inline.quote}`}
+            context={inline.context}
+            busy={inline.status === "running"}
+            onRerun={(exclude) => {
+              const r = inlineReq.current;
+              if (r) runInline({ ...r, exclude });
+            }}
+            onClose={() => setCtxPanel(null)}
+          />
+        )}
         <div className="canvas-status" data-rc="toolbar">
           {session.name}
           {!session.persistent && " · 示例书，改动不保存"}
@@ -602,6 +696,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
               const r = inlineReq.current;
               if (r) runInline(r);
             }}
+            onContext={() => setCtxPanel({ kind: "inline" })}
             onDepth={(depth) => {
               const r = inlineReq.current;
               if (r && depth !== r.depth) runInline({ ...r, depth });

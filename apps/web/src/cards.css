@@ -198,3 +198,49 @@
   .rc-card[data-type="answer"] .rc-card-title { -webkit-line-clamp: 2; }
   .rc-card[data-type="answer"] .rc-card-title + .rc-card-body { -webkit-line-clamp: 2; flex: none; }
 }
+
+@layer base {
+  /* 「本次上下文」面板：覆盖在画布右侧 */
+  .ctx-panel {
+    position: absolute; top: var(--rd-space-3); right: var(--rd-space-3); bottom: var(--rd-space-3);
+    z-index: var(--rd-z-drawer); width: var(--rd-size-sidebar); min-width: calc(var(--rd-size-popover) * 1.2);
+    display: flex; flex-direction: column; gap: var(--rd-space-2);
+    padding: var(--rd-space-3); border: var(--rd-stroke-contain) solid var(--rd-border); border-radius: var(--rd-radius-md);
+    background: var(--rd-surface-raised); box-shadow: var(--rd-shadow-drawer); color: var(--rd-ink); font-family: var(--rd-font-ui);
+  }
+  .ctx-head { display: flex; align-items: center; gap: var(--rd-space-1); min-width: 0; }
+  .ctx-head > .rc-icon:first-child { color: var(--rd-ai); }
+  .ctx-title { margin: 0; font: var(--rd-type-label); flex: none; }
+  .ctx-sub { flex: 1; min-width: 0; font: var(--rd-type-caption); color: var(--rd-ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ctx-total { display: flex; align-items: center; gap: var(--rd-space-2); margin: 0; font: var(--rd-type-caption); color: var(--rd-ink-muted); }
+  .ctx-total[data-over="true"] { color: var(--rd-danger-ink); }
+  .ctx-list { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; display: flex; flex-direction: column; gap: var(--rd-space-1); }
+  .ctx-item { border: var(--rd-stroke-contain) solid var(--rd-border); border-radius: var(--rd-radius-sm); background: var(--rd-surface); }
+  .ctx-item[data-off="true"] { opacity: var(--rd-opacity-dimmed); }
+  .ctx-item summary {
+    display: flex; align-items: center; gap: var(--rd-space-2); padding: var(--rd-space-1) var(--rd-space-2);
+    cursor: pointer; list-style: none; font: var(--rd-type-caption);
+  }
+  .ctx-item summary::-webkit-details-marker { display: none; }
+  .ctx-pos {
+    flex: none; display: grid; place-items: center; width: var(--rd-size-icon-md); height: var(--rd-size-icon-md);
+    border-radius: var(--rd-radius-full); background: var(--rd-surface-sunken); color: var(--rd-ink-muted); font: var(--rd-type-badge);
+  }
+  .ctx-label { flex: 1; min-width: 0; color: var(--rd-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ctx-note { flex: none; color: var(--rd-stale); }
+  .ctx-tokens { flex: none; color: var(--rd-ink-muted); font-variant-numeric: tabular-nums; }
+  .ctx-toggle { flex: none; display: inline-flex; }
+  .ctx-text {
+    margin: 0; padding: var(--rd-space-2); border-top: var(--rd-stroke-contain) solid var(--rd-border);
+    max-height: var(--rd-size-popover); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+    font: var(--rd-type-code); color: var(--rd-ink); background: var(--rd-surface-sunken);
+  }
+  .ctx-foot { display: flex; align-items: center; gap: var(--rd-space-2); }
+  .ctx-hint { flex: 1; font: var(--rd-type-caption); color: var(--rd-ink-muted); }
+  .ctx-foot .btn { display: inline-flex; align-items: center; gap: var(--rd-space-1); }
+}
+
+@layer base {
+  /* tldraw 内部的 z-index 关在自己的层叠上下文里，画布上的面板、提示才能盖在它上面。 */
+  .canvas .tl-container { isolation: isolate; }
+}

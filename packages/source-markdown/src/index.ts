@@ -166,6 +166,17 @@ export const markdownAdapter: SourceAdapter = {
       part.sentence = doc.text.slice(s, e).trim();
       part.paragraph = doc.text.slice(block.start, block.end).trim();
     }
+    if (block) {
+      const { blocks } = treeOf(doc);
+      const i = blocks.indexOf(block);
+      const same = (b: Block | undefined) => b !== undefined && b.headingPath.join("\u0000") === block.headingPath.join("\u0000");
+      const textOf = (b: Block) => doc.text.slice(b.start, b.end).trim();
+      const before = [blocks[i - 2], blocks[i - 1]].filter(same).map((b) => textOf(b!));
+      const after = [blocks[i + 1], blocks[i + 2]].filter(same).map((b) => textOf(b!));
+      // 块级选中时所在段就是选中本身，前后文照样给。
+      if (before.length) part.before = before;
+      if (after.length) part.after = after;
+    }
     return part;
   },
 };
