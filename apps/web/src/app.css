@@ -13,12 +13,184 @@
   .layout {
     display: grid;
     grid-template-columns: var(--rd-size-rail) minmax(var(--rd-size-canvas-min), 1fr) minmax(var(--rd-size-reader-min), 40%);
+    overflow: hidden;
     height: 100%;
   }
 
+  /* 左栏：收起为 48px 图标条，悬停展开为 240px（覆盖在画布上，不挤压布局） */
   .rail {
+    position: relative;
+    z-index: var(--rd-z-drawer);
+    width: var(--rd-size-rail);
+    overflow: hidden;
     border-right: 1px solid var(--rd-border);
     background: var(--rd-surface-sunken);
+    transition: width 120ms ease-out;
+  }
+
+  .rail:hover,
+  .rail:focus-within {
+    width: var(--rd-size-sidebar);
+    box-shadow: var(--rd-shadow-drawer);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rail {
+      transition: none;
+    }
+  }
+
+  .rail-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .rail-item {
+    display: flex;
+    align-items: center;
+    gap: var(--rd-space-3);
+    width: var(--rd-size-sidebar);
+    height: var(--rd-size-control-md);
+    padding: 0 var(--rd-space-3);
+    border: 0;
+    background: transparent;
+    color: var(--rd-ink-muted);
+    font: inherit;
+    font-size: var(--rd-text-body-size);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .rail-item:hover {
+    background: var(--rd-surface-hover);
+  }
+
+  .rail-item[aria-current="page"] {
+    color: var(--rd-ink);
+    font-weight: var(--rd-text-title-weight);
+  }
+
+  .rail-item:focus-visible {
+    outline: var(--rd-stroke-focus) solid var(--rd-focus-ring);
+    outline-offset: calc(-1 * var(--rd-stroke-focus));
+  }
+
+  .rail-num {
+    flex: none;
+    width: var(--rd-size-icon-md);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .rail:not(:hover):not(:focus-within) .rail-label {
+    visibility: hidden;
+  }
+
+  .rail-label {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .rail-home {
+    border-bottom: 1px solid var(--rd-border);
+  }
+
+  .canvas-status {
+    position: absolute;
+    left: 50%;
+    top: var(--rd-space-2);
+    z-index: var(--rd-z-toolbar);
+    transform: translateX(-50%);
+    padding: var(--rd-space-1) var(--rd-space-3);
+    border-radius: var(--rd-radius-full);
+    background: var(--rd-surface-raised);
+    box-shadow: var(--rd-shadow-toolbar);
+    color: var(--rd-ink-muted);
+    font-size: var(--rd-text-caption-size);
+    pointer-events: none;
+  }
+
+  .canvas-error {
+    color: var(--rd-danger-ink);
+  }
+
+  .reader-empty {
+    color: var(--rd-ink-muted);
+  }
+
+  /* 首次启动 */
+  .start {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: var(--rd-space-12) var(--rd-space-6);
+  }
+
+  .start-title {
+    font-size: var(--rd-text-display-size);
+    line-height: var(--rd-text-display-line);
+    font-weight: var(--rd-text-display-weight);
+    margin: 0 0 var(--rd-space-3);
+  }
+
+  .start-lead {
+    color: var(--rd-ink-muted);
+    font-size: var(--rd-text-body-size);
+    line-height: var(--rd-text-body-line);
+  }
+
+  .start-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--rd-space-2);
+    margin-top: var(--rd-space-6);
+  }
+
+  .start-note {
+    color: var(--rd-ink-muted);
+    font-size: var(--rd-text-caption-size);
+  }
+
+  .start-error {
+    color: var(--rd-danger-ink);
+    font-size: var(--rd-text-body-size);
+  }
+
+  .btn {
+    height: var(--rd-size-control-md);
+    padding: 0 var(--rd-space-4);
+    border: 1px solid var(--rd-border-strong);
+    border-radius: var(--rd-radius-md);
+    background: var(--rd-surface);
+    color: var(--rd-ink);
+    font: inherit;
+    font-size: var(--rd-text-body-size);
+    cursor: pointer;
+  }
+
+  .btn:hover {
+    background: var(--rd-surface-hover);
+  }
+
+  .btn:disabled {
+    color: var(--rd-ink-disabled);
+    cursor: default;
+  }
+
+  .btn:focus-visible {
+    outline: var(--rd-stroke-focus) solid var(--rd-focus-ring);
+    outline-offset: 2px;
+  }
+
+  .btn-primary {
+    border-color: var(--rd-ai);
+    background: var(--rd-ai);
+    color: var(--rd-on-accent);
+  }
+
+  .btn-primary:hover {
+    background: var(--rd-ai-ink);
   }
 
   .canvas {

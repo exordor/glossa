@@ -6,6 +6,8 @@ import { EventBus } from "./events.js";
 import { newId } from "./ids.js";
 import { type LoadedCanvas, loadCanvas, saveCanvas } from "./canvas-store.js";
 import { Registry } from "./registry.js";
+import { type ImportResult, type ViewState, importBook, readBook, readView, writeView } from "./book.js";
+import type { Book } from "./types.js";
 import type { ReaderEdge, ReaderMeta, ReaderNode } from "./types.js";
 import { SCHEMA_VERSION } from "./types.js";
 import type { Vault } from "./vault.js";
@@ -76,6 +78,43 @@ export class Reader {
     if (label !== undefined) edge.label = label;
     c.edges.push(edge);
     return structuredClone(edge);
+  }
+
+  /** 导入（或重新扫描）当前文件夹为一本书，然后重新载入画布。 */
+  async importBook(folderName: string): Promise<ImportResult> {
+    const result = await importBook(this.vault, this.registry, folderName);
+    await this.open();
+    return result;
+  }
+
+  async getBook(): Promise<Book | null> {
+    return readBook(this.vault);
+  }
+
+  /** 读来源文件全文。 */
+  async readSource(sourceId: string): Promise<{ path: string; text: string } | null> {
+    const book = await readBook(this.vault);
+    const src = book?.sources.find((s) => s.id === sourceId);
+    if (!src) return null;
+    const text = await this.vault.readText(src.path);
+    return text === null ? null : { path: src.path, text };
+  }
+
+  /** 用户拖动节点：更新位置，并标记 pinned，之后自动布局不再移动它。 */
+  async moveNode(id: string, x: number, y: number): Promise<void> {
+    const node = this.require().nodes.find((n) => n.id === id);
+    if (!node) return;
+    node.x = x;
+    node.y = y;
+    node.meta.pinned = true;
+  }
+
+  async getView(): Promise<ViewState | null> {
+    return readView(this.vault);
+  }
+
+  async saveView(view: Omit<ViewState, "schemaVersion">): Promise<void> {
+    await writeView(this.vault, view);
   }
 
   async save(): Promise<void> {

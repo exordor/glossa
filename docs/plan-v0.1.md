@@ -30,8 +30,8 @@ v0.1 只验证一件事：在画布上读一章书、选段提问，比在编辑
 
 ## 接下来（按顺序，每项一个 PR）
 
-1. **打开书文件夹**：File System Access API 的 Vault 实现；导入章节、生成 book.json、章节卡横向排开；恢复视口。
-2. **阅读器正式渲染**：rehype + KaTeX + Shiki，保留源偏移；DOM 选区 → 源偏移；跳回原文（滚动 + 闪烁高亮）。
+1. ✅ **打开书文件夹**（PR #3）：File System Access API 的 Vault 实现；导入章节、生成 book.json、章节卡横向排开；恢复视口。
+2. ✅ **阅读器正式渲染**（PR #2，Shiki 代码高亮暂缓）：rehype + KaTeX + Shiki，保留源偏移；DOM 选区 → 源偏移；跳回原文（滚动 + 闪烁高亮）。
 3. **自定义卡片 shape**：六种节点按设计系统渲染（左色条、图标、状态徽章、agent 角标）；三种连线 role 的线型；问答卡合成视图与「展开」。
 4. **LLM 网关**：AI SDK registry + 别名 + 能力表；设置页（provider、Key、一键测试）；首次启动引导。
 5. **动作模板**：`templates/actions/*.md` 加载为 action 扩展点；词义、拆句就地弹卡 +「钉到画布」；提问 / 解释生成问答卡；结构化输出 + 引用校验；流式 summary → points / steps。
