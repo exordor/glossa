@@ -34,13 +34,100 @@
     padding: var(--rd-space-6);
   }
 
-  .reader pre {
+  /* 原文用衬线字体（设计系统：原文 serif，衍生内容 sans） */
+  .reader-body {
     max-width: var(--rd-reader-measure);
     margin: 0 auto;
-    white-space: pre-wrap;
     font-family: var(--rd-font-reading);
     font-size: var(--rd-reader-font-size);
     line-height: var(--rd-reader-line-height);
+    color: var(--rd-ink);
+  }
+
+  .reader-body h1 {
+    font-size: var(--rd-text-reader-h1-size);
+    line-height: var(--rd-text-reader-h1-line);
+    font-weight: var(--rd-text-reader-h1-weight);
+    margin: var(--rd-space-8) 0 var(--rd-space-4);
+  }
+
+  .reader-body h2 {
+    font-size: var(--rd-text-reader-h2-size);
+    line-height: var(--rd-text-reader-h2-line);
+    font-weight: var(--rd-text-reader-h2-weight);
+    margin: var(--rd-space-6) 0 var(--rd-space-3);
+  }
+
+  .reader-body h3 {
+    font-size: var(--rd-text-reader-h3-size);
+    line-height: var(--rd-text-reader-h3-line);
+    font-weight: var(--rd-text-reader-h3-weight);
+    margin: var(--rd-space-5) 0 var(--rd-space-2);
+  }
+
+  .reader-body p {
+    margin: 0 0 var(--rd-space-4);
+  }
+
+  .reader-body img {
+    display: block;
+    max-width: 100%;
+    margin: var(--rd-space-4) auto var(--rd-space-2);
+    border-radius: var(--rd-radius-sm);
+  }
+
+  .reader-body img[data-missing] {
+    min-height: var(--rd-size-control-md);
+    border: 1px dashed var(--rd-border-strong);
+  }
+
+  .reader-body figure {
+    margin: var(--rd-space-4) 0;
+  }
+
+  .reader-body figcaption {
+    text-align: center;
+    color: var(--rd-ink-muted);
+    font-size: var(--rd-text-reader-caption-size);
+    line-height: var(--rd-text-reader-caption-line);
+  }
+
+  .reader-body pre {
+    overflow-x: auto;
+    padding: var(--rd-space-3) var(--rd-space-4);
+    border-radius: var(--rd-radius-md);
+    background: var(--rd-surface-sunken);
+    font-family: var(--rd-font-mono);
+    font-size: var(--rd-text-code-size);
+    line-height: var(--rd-text-code-line);
+  }
+
+  .reader-body code {
+    font-family: var(--rd-font-mono);
+    font-size: var(--rd-text-code-size);
+  }
+
+  .reader-body .katex-display {
+    overflow-x: auto;
+    margin: var(--rd-space-4) 0;
+  }
+
+  .reader-body table {
+    border-collapse: collapse;
+    margin: var(--rd-space-4) 0;
+    font-family: var(--rd-font-ui);
+    font-size: var(--rd-text-body-size);
+  }
+
+  .reader-body th,
+  .reader-body td {
+    padding: var(--rd-space-1) var(--rd-space-3);
+    border: 1px solid var(--rd-border);
+  }
+
+  .reader-body th {
+    background: var(--rd-surface-sunken);
+    text-align: left;
   }
 
   .reader ::selection {

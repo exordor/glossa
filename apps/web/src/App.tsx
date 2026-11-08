@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { SourceReader, type TextRange } from "./SourceReader";
+import { sampleBookAsset } from "./assets";
 import { Tldraw, type Editor, createShapeId, toRichText } from "tldraw";
 import type { SourceDoc } from "@reader/core";
 import { markdownAdapter } from "@reader/source-markdown";
@@ -12,8 +14,9 @@ import chapter1 from "../../../fixtures/sample-book/01-attention.md?raw";
 export function App() {
   const [doc, setDoc] = useState<SourceDoc | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
-  const [selection, setSelection] = useState<{ start: number; end: number } | null>(null);
+  const [selection, setSelection] = useState<TextRange | null>(null);
   const actions = useMemo(() => reader.registry.list("action"), []);
+  const resolveAsset = useMemo(() => sampleBookAsset("01-attention.md"), []);
 
   useEffect(() => {
     void markdownAdapter.parse("ch1", chapter1).then(setDoc);
@@ -32,18 +35,6 @@ export function App() {
     });
     editor.zoomToFit();
   }, [editor, doc]);
-
-  function onMouseUp() {
-    const sel = window.getSelection();
-    const host = document.querySelector('[data-rc="reader"] pre');
-    if (!sel || sel.isCollapsed || !host || !host.contains(sel.anchorNode)) return setSelection(null);
-    const range = sel.getRangeAt(0);
-    const pre = document.createRange();
-    pre.selectNodeContents(host);
-    pre.setEnd(range.startContainer, range.startOffset);
-    const start = pre.toString().length;
-    setSelection({ start, end: start + range.toString().length });
-  }
 
   async function runAction(actionId: string) {
     if (!doc || !selection || !editor) return;
@@ -65,7 +56,7 @@ export function App() {
       <main className="canvas">
         <Tldraw onMount={setEditor} />
       </main>
-      <aside className="reader" data-rc="reader" onMouseUp={onMouseUp}>
+      <aside className="reader" data-rc="reader">
         {selection && (
           <div className="popover" data-rc="popover" role="toolbar">
             {actions.map((a) => (
@@ -75,7 +66,7 @@ export function App() {
             ))}
           </div>
         )}
-        <pre>{doc?.text ?? "加载中…"}</pre>
+        {doc ? <SourceReader doc={doc} resolveAsset={resolveAsset} onSelect={setSelection} /> : <p>加载中…</p>}
       </aside>
     </div>
   );

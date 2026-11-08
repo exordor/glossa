@@ -1,3 +1,11 @@
 packages:
   - "packages/*"
   - "apps/*"
+
+# 供应链安全：只安装发布满 1 天的版本（分钟）。pnpm 12 默认就这样检查，锁文件必须满足它。
+minimumReleaseAge: 1440
+
+# 下面两个版本发布不满 1 天（2026-11-08），先固定到上一个版本；满一周后可删除。
+overrides:
+  parse5: 8.1.0
+  prosemirror-model: 1.25.12
