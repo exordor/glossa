@@ -99,6 +99,8 @@ describe("dev bridge：/__llm 转发", () => {
     });
     expect(res.status).toBe(200);
     expect(res.headers.get("set-cookie")).toBeNull();
+    // 转发的响应也带 bridge 标记：客户端据此区分上游 404 和「没有 bridge」。
+    expect(res.headers.get("x-glossa-bridge")).toBe("1");
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ method: "POST", url: "/v4/ai/language-model?x=1", body: '{"hello":"世界"}' });
     expect(seen[0]!.headers.authorization).toBe("Bearer vck_server_side_key_123456");
@@ -258,6 +260,22 @@ describe("dev bridge：密钥接口", () => {
     expect(await kc.get("deepseek")).toBeNull();
     expect(calls[1]!.slice(0, 7)).toEqual(["security", "add-generic-password", "-U", "-s", "glossa", "-a", "deepseek"]);
     expect(calls[0]).toEqual(["security", "find-generic-password", "-s", "glossa", "-a", "deepseek", "-w"]);
+  });
+
+  it("钥匙串写入失败：只回退出码，响应里绝不出现密钥（execFile 的报错消息含完整命令行）", async () => {
+    const exec: ExecFileFn = async (file, args) => {
+      if (args[0] === "find-generic-password") throw Object.assign(new Error("not found"), { code: 44 });
+      throw Object.assign(new Error(`Command failed: ${file} ${args.join(" ")}\n`), { code: 51, cmd: `${file} ${args.join(" ")}` });
+    };
+    const b = await bridge({ secrets: macKeychain(exec) });
+    const secret = "sk-SECRET-should-never-leak-0000";
+    const res = await b.call("/__glossa/llm/key/deepseek", { method: "PUT", body: JSON.stringify({ apiKey: secret }) });
+    expect(res.status).toBe(500);
+    const text = await res.text();
+    expect(text).not.toContain(secret);
+    expect(JSON.parse(text)).toMatchObject({ error: { code: "keychain_error" } });
+    expect(text).toContain("51");
+    await b.done();
   });
 });
 

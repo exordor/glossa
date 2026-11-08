@@ -43,7 +43,7 @@ export function toLlmErrorInfo(err: unknown): LlmErrorInfo {
   const body = `${responseBody ?? ""} ${msg}`;
   const code = bodyCode(responseBody);
 
-  if (name === "ReplayMissError") return info("replay_miss", msg, false);
+  if (name === "ReplayMissError" || name === "RecordingConfigError") return info("replay_miss", msg, false);
   if (name === "AbortError" || name === "ResponseAborted" || /aborted|abort/i.test(name)) return info("aborted", "已取消", false);
   if (/timeout/i.test(name) || name === "TimeoutError") return info("timeout", "等待超时", true);
   // dev bridge 自己的错误（没有密钥 / 生产构建没有 bridge）。
@@ -57,7 +57,8 @@ export function toLlmErrorInfo(err: unknown): LlmErrorInfo {
     return info("model_not_found", `模型不存在：${e.modelId ?? ""}`.trim(), false, status ?? 404);
   }
   if (name === "GatewayRateLimitError" || status === 429) return info("rate_limited", "请求过于频繁，已自动重试 3 次", true, status ?? 429);
-  if (status === 404) return info("no_bridge", "AI 功能需在桌面版或 pnpm dev 下使用", false, 404);
+  // bridge 不在时 transport 已经换成 no_bridge（见 createBridgeTransport）；其余 404 是服务地址或接口路径不对。
+  if (status === 404) return info("provider_error", "服务地址或接口不存在（404）", false, 404);
   if (status === 402) return info("restricted_model", "余额不足，请充值后重试", false, 402);
   if (
     (name === "TypeError" && /fetch|network|load failed/i.test(msg)) ||

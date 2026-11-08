@@ -22,6 +22,15 @@ const STREAM_PROMPTS: Record<string, string> = {
   ask: "下面是读者从书里选中的一段文字，把它当作读者的问题，用中文回答：先给一句话结论，再展开。",
 };
 
+/** 回答卡的生成请求（重试用）。 */
+interface AnswerRequest {
+  actionId: string;
+  text: string;
+  where: string[];
+}
+
+const INTERRUPTED = "已中断";
+
 /** 跳回原文：滚到锚点所在的文字并闪一下。 */
 function flashRange(root: HTMLElement, start: number, end: number) {
   const spans = [...root.querySelectorAll<HTMLElement>("[data-s]")].filter(
@@ -61,8 +70,10 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
   const actions = useMemo(() => reader.registry.list("action"), [reader]);
   const nodesRef = useRef<ReaderNode[]>([]);
   const [toast, setToast] = useState<{ text: string; detail: string } | null>(null);
-  /** 正在流式生成的回答：runId 集合。离开这本书时全部取消。 */
-  const runsRef = useRef(new Set<string>());
+  /** 正在流式生成的回答：回答卡 nodeId → runId。删卡或离开这本书时取消。 */
+  const runsRef = useRef(new Map<string, string>());
+  /** 回答卡的请求，「重试」用同一请求重新生成（只在本次会话内；重新打开书后从来源摘录卡推回）。 */
+  const requestsRef = useRef(new Map<string, AnswerRequest>());
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -70,7 +81,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
     const runs = runsRef.current;
     return () => {
       mountedRef.current = false;
-      for (const id of runs) void reader.llm.cancel(id);
+      for (const runId of runs.values()) void reader.llm.cancel(runId);
     };
   }, [reader]);
 
@@ -106,6 +117,15 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
     const cleanups: Array<() => void> = [];
     void (async () => {
       if (!session.persistent) await seedDemoCards(reader, book);
+      // 上次流式生成到一半就关掉 / 刷新了：没有进行中的请求，标成失败，可重试。
+      let interrupted = false;
+      for (const n of await reader.listNodes()) {
+        if (n.meta.type !== "answer" || n.meta.status !== "running" || runsRef.current.has(n.id)) continue;
+        const text = n.text ? `${n.text}\n\n（${INTERRUPTED}）` : INTERRUPTED;
+        await reader.updateNode(n.id, { status: "failed", text, body: text });
+        interrupted = true;
+      }
+      if (interrupted) save();
       nodesRef.current = await reader.listNodes();
       const edges = await reader.listEdges();
       if (disposed) return;
@@ -117,6 +137,12 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       cleanups.push(
         editor.store.listen(
           ({ changes }) => {
+            // 删掉正在生成的回答卡：取消请求，不再花 token。
+            for (const rec of Object.values(changes.removed)) {
+              if (rec.typeName !== "shape") continue;
+              const runId = runsRef.current.get(nodeIdOf(rec.id));
+              if (runId) void reader.llm.cancel(runId);
+            }
             for (const [from, to] of Object.values(changes.updated)) {
               // 只处理位置变化：流式写回答时程序改的是 props，不能把卡标成 pinned，也不该每帧存盘。
               if (to.typeName !== "shape" || from.typeName !== "shape" || (from.x === to.x && from.y === to.y)) continue;
@@ -228,7 +254,8 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
   const streamAnswer = useCallback(
     async (answerId: string, action: ActionTemplate, text: string, where: string[]) => {
       const runId = newId();
-      runsRef.current.add(runId);
+      runsRef.current.set(answerId, runId);
+      requestsRef.current.set(answerId, { actionId: action.id, text, where });
       let acc = "";
       let raf = 0;
       const flush = () => {
@@ -262,11 +289,36 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
           }
         }
       } finally {
-        runsRef.current.delete(runId);
+        if (runsRef.current.get(answerId) === runId) runsRef.current.delete(answerId);
       }
     },
     [reader, refreshCard, save],
   );
+
+  // 失败回答卡上的「重试」：用同一请求重新生成。
+  useEffect(() => {
+    const onRetry = (e: Event) => {
+      const answerId = (e as CustomEvent<{ nodeId: string }>).detail.nodeId;
+      if (runsRef.current.has(answerId)) return;
+      void (async () => {
+        let req = requestsRef.current.get(answerId);
+        if (!req) {
+          // 重新打开书后没有内存里的请求：从「来源摘录卡 → 回答卡」的 derived 边推回，动作按「解释」。
+          const edge = (await reader.listEdges()).find((x) => x.to === answerId && x.role === "derived");
+          const from = edge && (await reader.listNodes()).find((n) => n.id === edge.from);
+          const a = from?.meta.anchor;
+          if (!a) return;
+          req = { actionId: "explain", text: a.quote.exact, where: a.kind === "markdown" ? a.headingPath : [] };
+        }
+        const action = reader.registry.get("action", req.actionId);
+        if (!action) return;
+        refreshCard(await reader.updateNode(answerId, { status: "running", text: "" }));
+        void streamAnswer(answerId, action, req.text, req.where);
+      })();
+    };
+    window.addEventListener("glossa:retry", onRetry);
+    return () => window.removeEventListener("glossa:retry", onRetry);
+  }, [reader, refreshCard, streamAnswer]);
 
   const runAction = useCallback(
     async (actionId: string) => {

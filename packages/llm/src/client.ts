@@ -8,7 +8,7 @@ import { type LanguageModel, type ProviderMetadata, streamText, wrapLanguageMode
 import { toLlmErrorInfo } from "./errors.js";
 import { toModelMessages } from "./messages.js";
 import { type CallPlan, planCall } from "./plan.js";
-import { type RecordReplayOptions, recordReplayMiddleware, recordingModeFromEnv } from "./record-replay.js";
+import { RecordingConfigError, type RecordReplayOptions, recordReplayMiddleware, resolveRecordings } from "./record-replay.js";
 
 /** AI SDK 的 V4 语言模型对象（LanguageModel 去掉字符串 id 的那一支）。 */
 export type SdkLanguageModel = Exclude<LanguageModel, string>;
@@ -23,14 +23,17 @@ export interface LlmClientParts {
   providerOptions?(plan: CallPlan): Record<string, Record<string, unknown>> | undefined;
   /** 从 finish-step 的 providerMetadata 取生成 id（网关：gateway.generationId）。 */
   generationId?(providerMetadata: unknown): string | undefined;
-  /** 不传时模式取环境变量 GLOSSA_LLM_RECORDINGS，没有存储（replay 一律 replay_miss）。 */
+  /** 不传时模式取环境变量 GLOSSA_LLM_RECORDINGS，存储取 setDefaultRecordingStore 设的默认值；record/replay 下都没有就报配置错误。 */
   recordings?: RecordReplayOptions;
+  /** 超时（毫秒）。缺省：首块 30 s（思考模型 90 s），块间 60 s。测试里调小。 */
+  timeouts?: { firstChunkMs?: number; thinkingFirstChunkMs?: number; chunkMs?: number };
 }
 
 const aborted = (): LlmErrorInfo => ({ code: "aborted", message: "已取消", retryable: false });
+const timedOut = (): LlmErrorInfo => ({ code: "timeout", message: "等待超时", retryable: true });
 
 export function createLlmClient(parts: LlmClientParts): LlmClient {
-  const recordings = parts.recordings ?? { mode: recordingModeFromEnv() };
+  const recordings = resolveRecordings(parts.recordings);
   const model = (id: string): SdkLanguageModel => {
     const m = parts.languageModel(id);
     return recordings.mode === "off" ? m : wrapLanguageModel({ model: m as never, middleware: recordReplayMiddleware(recordings) });
@@ -48,6 +51,10 @@ export function createLlmClient(parts: LlmClientParts): LlmClient {
       yield { type: "error", error: aborted() };
       return;
     }
+    if (recordings.mode !== "off" && !recordings.store) {
+      yield { type: "error", error: toLlmErrorInfo(new RecordingConfigError(recordings.mode)) };
+      return;
+    }
     let firstChunkMs: number | undefined;
     let generationId: string | undefined;
     try {
@@ -60,7 +67,10 @@ export function createLlmClient(parts: LlmClientParts): LlmClient {
         maxOutputTokens: req.maxOutputTokens ?? plan.binding.maxOutputTokens,
         // 设计文档「边界情况」：限流自动退避重试 3 次（SDK 对 429 / 5xx 退避重试）。
         maxRetries: 3,
-        timeout: { firstChunkMs: thinking ? 90_000 : 30_000, chunkMs: 60_000 },
+        timeout: {
+          firstChunkMs: thinking ? (parts.timeouts?.thinkingFirstChunkMs ?? 90_000) : (parts.timeouts?.firstChunkMs ?? 30_000),
+          chunkMs: parts.timeouts?.chunkMs ?? 60_000,
+        },
         abortSignal: signal,
         providerOptions: parts.providerOptions?.(plan) as ProviderMetadata | undefined,
         // 错误走流里的 error 部件，不要打到控制台。
@@ -90,7 +100,9 @@ export function createLlmClient(parts: LlmClientParts): LlmClient {
             return;
           }
           case "abort":
-            yield { type: "error", error: aborted() };
+            // SDK 的首块 / 块间超时也是通过中止内部合并的 signal 实现的，同样发 abort 部件（reason 是 TimeoutError）。
+            // 只有调用方自己的 signal 被中止才算「已取消」，否则就是超时。
+            yield { type: "error", error: signal.aborted ? aborted() : timedOut() };
             return;
           case "error":
             yield { type: "error", error: signal.aborted ? aborted() : toLlmErrorInfo(p.error) };
@@ -99,7 +111,8 @@ export function createLlmClient(parts: LlmClientParts): LlmClient {
       }
       yield { type: "error", error: signal.aborted ? aborted() : { code: "provider_error", message: "流意外结束", retryable: true } };
     } catch (e) {
-      yield { type: "error", error: signal.aborted ? aborted() : toLlmErrorInfo(e) };
+      const info = toLlmErrorInfo(e);
+      yield { type: "error", error: signal.aborted ? aborted() : info.code === "aborted" ? timedOut() : info };
     }
   }
 

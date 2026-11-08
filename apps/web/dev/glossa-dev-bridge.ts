@@ -214,6 +214,12 @@ function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.end(text);
 }
 
+/** 只取退出码（数字或 ETIMEDOUT 这类错误码），绝不取 message / cmd。 */
+function exitCodeNote(e: unknown): string {
+  const code = (e as { code?: unknown } | null)?.code;
+  return typeof code === "number" || (typeof code === "string" && /^[A-Z0-9_]{1,32}$/.test(code)) ? `（退出码 ${code}）` : "";
+}
+
 const fail = (res: ServerResponse, status: number, code: string, message: string) => sendJson(res, status, { error: { code, type: code, message } });
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -315,11 +321,20 @@ export function createBridgeMiddleware(opts: BridgeOptions): BridgeMiddleware {
       const key = typeof apiKey === "string" ? apiKey.trim() : "";
       // 密钥会进 HTTP 请求头：拒绝空白和控制字符。
       if (!key || key.length > 4096 || /[\s\x00-\x1f\x7f]/.test(key)) return fail(res, 400, "bad_key", "密钥格式不对");
-      await secrets.set(providerId, key);
+      // 不能把 err.message 往外传：execFile 的报错消息含完整命令行（-w <密钥>）。
+      try {
+        await secrets.set(providerId, key);
+      } catch (e) {
+        return fail(res, 500, "keychain_error", `密钥保存失败${exitCodeNote(e)}`);
+      }
       return sendJson(res, 200, await keyStatus(providerId, route));
     }
     if (req.method === "DELETE") {
-      await secrets.delete(providerId);
+      try {
+        await secrets.delete(providerId);
+      } catch (e) {
+        return fail(res, 500, "keychain_error", `密钥清除失败${exitCodeNote(e)}`);
+      }
       return sendJson(res, 200, await keyStatus(providerId, route));
     }
     return fail(res, 405, "method_not_allowed", "不支持的方法");
@@ -373,6 +388,8 @@ export function createBridgeMiddleware(opts: BridgeOptions): BridgeMiddleware {
     const up = send(target, { method: req.method ?? "GET", headers }, (upRes) => {
       res.statusCode = upRes.statusCode ?? 502;
       for (const [k, v] of Object.entries(upRes.headers)) if (v !== undefined && !DROP_RESPONSE_HEADERS.has(k)) res.setHeader(k, v);
+      // 标记「经过了 bridge」：客户端据此区分上游 404 和「bridge 不存在」的 404。
+      res.setHeader(BRIDGE_HEADER, "1");
       // SSE：立即发出响应头，逐块转发，不缓冲。
       res.setHeader("x-accel-buffering", "no");
       res.flushHeaders();
@@ -415,9 +432,10 @@ export function createBridgeMiddleware(opts: BridgeOptions): BridgeMiddleware {
       if (path === "/__glossa/settings") return handleSettings(req, res);
       return fail(res, 404, "not_found", "没有这个接口");
     };
-    run().catch((e: Error) => {
+    run().catch((e: unknown) => {
       if (res.headersSent) return void res.destroy();
-      fail(res, 500, "bridge_error", e.message);
+      // 只回固定文案：异常消息可能带出命令行参数或密钥（execFile 的 message 含完整命令行）。
+      fail(res, 500, "bridge_error", `bridge 内部错误${exitCodeNote(e)}`);
     });
   };
 }

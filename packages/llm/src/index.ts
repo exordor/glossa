@@ -38,4 +38,6 @@ export {
   promptHash,
   recordReplayMiddleware,
   recordingModeFromEnv,
+  resolveRecordings,
+  setDefaultRecordingStore,
 } from "./record-replay.js";

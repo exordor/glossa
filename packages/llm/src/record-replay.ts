@@ -50,10 +50,33 @@ export class MemoryRecordingStore implements RecordingStore {
   }
 }
 
+/**
+ * 没有显式传 store 时用的默认录制存储。Node 入口（@reader/llm/node 的 useRepoRecordings）设成仓库的 fixtures/recordings；
+ * 浏览器里不设（应用模式是 off，用不到）。
+ */
+let defaultStore: RecordingStore | undefined;
+export function setDefaultRecordingStore(store: RecordingStore | undefined): void {
+  defaultStore = store;
+}
+
+/** 补全录制选项：模式缺省取环境变量，store 缺省取默认存储。 */
+export function resolveRecordings(opts?: RecordReplayOptions): RecordReplayOptions {
+  const mode = opts?.mode ?? recordingModeFromEnv();
+  const store = opts?.store ?? defaultStore;
+  return { ...opts, mode, ...(store ? { store } : {}) };
+}
+
+export class RecordingConfigError extends Error {
+  override readonly name = "RecordingConfigError";
+  constructor(mode: RecordingMode) {
+    super(`GLOSSA_LLM_RECORDINGS=${mode} 但没有录制存储：传 recordings.store，或在 Node 里先调用 @reader/llm/node 的 useRepoRecordings()`);
+  }
+}
+
 export class ReplayMissError extends Error {
   override readonly name = "ReplayMissError";
   constructor(readonly promptHash: string) {
-    super(`没有录制：fixtures/recordings/${promptHash}.json（用 GLOSSA_LLM_RECORDINGS=record 录制）`);
+    super(`没有录制：fixtures/recordings/${promptHash}.json（有密钥时用 pnpm llm:record 录制）`);
   }
 }
 

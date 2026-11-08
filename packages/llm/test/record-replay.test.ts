@@ -13,6 +13,7 @@ import {
   promptHash,
   recordingModeFromEnv,
   registerBuiltinLlmProviders,
+  setDefaultRecordingStore,
 } from "../src/index.js";
 import { FileRecordingStore, REPO_RECORDINGS_DIR } from "../src/node.js";
 import { collect, sampleParts, stable, streamOf } from "./helpers.js";
@@ -90,6 +91,29 @@ describe("录制回放", () => {
     expect(validate.errors ?? []).toEqual([]);
     expect(Object.keys(json).slice(0, 4)).toEqual(["schemaVersion", "promptHash", "modelId", "kind"]);
     expect(files[0]).toBe(`${json.promptHash}.json`);
+  });
+
+  it("不传 recordings：replay 默认回放仓库录制（vitest.setup.ts 设了默认存储）", async () => {
+    const app = createAppLlm({ settings: new MemorySettingsStore(defaultSettings()) });
+    registerBuiltinLlmProviders(app.registry, { transport: networkGuardTransport() });
+    const chunks = await collect(app.llm.test("fast"));
+    expect(chunks.at(-1)).toMatchObject({ type: "finish", finishReason: "stop" });
+  });
+
+  it("record / replay 模式下既没传 store 也没有默认存储：明确的配置错误，不静默丢录制", async () => {
+    setDefaultRecordingStore(undefined);
+    try {
+      for (const mode of ["record", "replay"] as const) {
+        const model = new MockLanguageModelV4({ modelId: "m-fast", doStream: async () => streamOf(sampleParts()) });
+        const client = createLlmClient({ providerId: "test", settings, languageModel: () => model, recordings: { mode } });
+        const chunks = await collect(client.stream(req, new AbortController().signal));
+        expect(chunks.at(-1)).toMatchObject({ type: "error", error: { code: "replay_miss" } });
+        expect((chunks.at(-1) as { error: { message: string } }).error.message).toContain("没有录制存储");
+        expect(model.doStreamCalls).toHaveLength(0);
+      }
+    } finally {
+      setDefaultRecordingStore(new FileRecordingStore(REPO_RECORDINGS_DIR));
+    }
   });
 
   it("仓库里的一键测试录制：vercel-gateway 回放，不联网", async () => {

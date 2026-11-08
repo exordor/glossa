@@ -28,7 +28,8 @@ describe("toLlmErrorInfo", () => {
     ["断网", new TypeError("fetch failed"), "network"],
     ["取消", Object.assign(new Error("The operation was aborted"), { name: "AbortError" }), "aborted"],
     ["bridge 没有密钥", err({ name: "AI_APICallError", statusCode: 401, responseBody: '{"error":{"code":"no_key"}}' }), "no_key"],
-    ["生产构建没有 bridge", err({ name: "AI_APICallError", statusCode: 404, responseBody: "Not Found" }), "no_bridge"],
+    ["生产构建没有 bridge（transport 换成的响应）", err({ name: "AI_APICallError", statusCode: 404, responseBody: '{"error":{"code":"no_bridge"}}' }), "no_bridge"],
+    ["上游 404（地址或接口不对）", err({ name: "AI_APICallError", statusCode: 404, responseBody: "404 page not found" }), "provider_error"],
     ["回放未命中", err({ name: "ReplayMissError", message: "没有录制" }), "replay_miss"],
     ["5xx", err({ name: "AI_APICallError", statusCode: 502 }), "provider_error"],
   ];

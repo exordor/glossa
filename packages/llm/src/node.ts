@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stableStringify } from "@reader/core";
-import { RECORDING_KEY_ORDER, type Recording, type RecordingStore } from "./record-replay.js";
+import { RECORDING_KEY_ORDER, type Recording, type RecordingStore, setDefaultRecordingStore } from "./record-replay.js";
 
 /** fixtures/recordings/<promptHash>.json 文件存储。 */
 export class FileRecordingStore implements RecordingStore {
@@ -25,3 +25,10 @@ export class FileRecordingStore implements RecordingStore {
 
 /** 仓库里的 fixtures/recordings 绝对路径。 */
 export const REPO_RECORDINGS_DIR = fileURLToPath(new URL("../../../fixtures/recordings/", import.meta.url));
+
+/** 把仓库的 fixtures/recordings 设为默认录制存储（vitest.setup.ts、scripts/llm-record.ts 调用）。 */
+export function useRepoRecordings(dir: string = REPO_RECORDINGS_DIR): FileRecordingStore {
+  const store = new FileRecordingStore(dir);
+  setDefaultRecordingStore(store);
+  return store;
+}

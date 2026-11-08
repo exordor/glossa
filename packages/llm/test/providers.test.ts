@@ -150,6 +150,15 @@ describe("内置 provider 经 bridge 传输", () => {
     expect(chunks.at(-1)).toMatchObject({ type: "error", error: { code: "no_bridge" } });
   });
 
+  it("经 bridge 转发的上游 404（如 Ollama 少写 /v1）→ 地址或接口不存在，不是 no_bridge", async () => {
+    const f = fakeFetch({ "/__llm/openai-compatible/": () => new Response("404 page not found", { status: 404, headers: { [BRIDGE_HEADER]: "1" } }) });
+    const { llm } = setup(f.fetch, "openai-compatible", {
+      "openai-compatible": { baseURL: "http://localhost:11434", aliases: { fast: { model: "qwen3" } } },
+    });
+    const chunks = await collect(llm.test("fast"));
+    expect(chunks.at(-1)).toMatchObject({ type: "error", error: { code: "provider_error", message: "服务地址或接口不存在（404）", status: 404 } });
+  });
+
   it("bridge 没有密钥（401 no_key）→ no_key", async () => {
     const f = fakeFetch({ "/__llm/deepseek/": () => Response.json({ error: { code: "no_key", message: "未配置密钥" } }, { status: 401 }) });
     const { llm } = setup(f.fetch, "deepseek");
@@ -187,9 +196,10 @@ describe("内置 provider 经 bridge 传输", () => {
     expect(f.seen[0]?.headers.authorization).toBe("Bearer sk-test");
   });
 
-  it("vitest 默认 replay：没有录制存储时 replay_miss，且不发任何请求", async () => {
+  it("vitest 默认 replay：不传 recordings 也用仓库的 fixtures/recordings（vitest.setup.ts），未命中 replay_miss，且不发任何请求", async () => {
     const f = fakeFetch({});
     const s = defaultSettings();
+    s.llm.activeProvider = "deepseek"; // 仓库里只录了网关的一键测试
     const app = createAppLlm({ settings: new MemorySettingsStore(s) });
     registerBuiltinLlmProviders(app.registry, { transport: createBridgeTransport({ origin: ORIGIN, fetch: f.fetch }) });
     const chunks = await collect(app.llm.test("fast"));

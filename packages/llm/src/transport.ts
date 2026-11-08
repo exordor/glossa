@@ -57,8 +57,13 @@ export function createBridgeTransport(opts: { origin: string; fetch?: FetchFn })
         // 密钥只在服务端注入；浏览器侧的占位 authorization 直接去掉。
         headers.delete("authorization");
         headers.set(BRIDGE_HEADER, "1");
-        if (input instanceof Request) return f(new Request(target, input), { ...init, headers });
-        return f(target, { ...init, headers });
+        const res = input instanceof Request ? await f(new Request(target, input), { ...init, headers }) : await f(target, { ...init, headers });
+        // bridge 自己的响应和它转发的上游响应都带 x-glossa-bridge: 1。
+        // 没有这个头的 404 说明 bridge 根本不在（生产构建 / 静态服务器）；带着它的 404 是上游或 bridge 放行表的 404，原样交出去。
+        if (res.status === 404 && res.headers.get(BRIDGE_HEADER) !== "1") {
+          return Response.json({ error: { code: "no_bridge", type: "no_bridge", message: "没有 dev bridge" } }, { status: 404 });
+        }
+        return res;
       };
     },
   };

@@ -156,8 +156,15 @@ export class Reader {
   }
 
   async save(): Promise<void> {
-    await saveCanvas(this.vault, this.require(), { bodies: this.bodies });
+    // 先换出待写正文再 await：保存进行中 updateNode 设的正文（如流式回答结束时）留给下一次 save，不会被清掉。
+    const bodies = this.bodies;
     this.bodies = {};
+    try {
+      await saveCanvas(this.vault, this.require(), { bodies });
+    } catch (e) {
+      this.bodies = { ...bodies, ...this.bodies };
+      throw e;
+    }
   }
 
   private require(): LoadedCanvas {

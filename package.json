@@ -10,7 +10,8 @@
     "typecheck": "pnpm -r typecheck",
     "tokens": "pnpm --filter @reader/theme build",
     "obsidian:fixture": "tsx scripts/obsidian-roundtrip.ts make",
-    "obsidian:check": "tsx scripts/obsidian-roundtrip.ts check"
+    "obsidian:check": "tsx scripts/obsidian-roundtrip.ts check",
+    "llm:record": "tsx scripts/llm-record.ts"
   },
   "devDependencies": {
     "@reader/core": "workspace:*",

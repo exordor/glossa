@@ -15,3 +15,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   if (host && !LOOPBACK.has(host)) throw new TypeError(`测试禁止联网：${url}`);
   return realFetch(input, init);
 }) as typeof fetch;
+
+// 录制回放：没有显式传 store 的客户端（如直接用 registerBuiltinLlmProviders）也回放仓库里的 fixtures/recordings。
+import { useRepoRecordings } from "./packages/llm/src/node.js";
+useRepoRecordings();
