@@ -2,6 +2,7 @@
  * 事件总线。事件名稳定，和 schemas/events.json 保持一致（有测试校验）。
  * 负载必须可序列化，不传 DOM 对象：以后插件迁到 Worker / iframe 时不用改。
  */
+import type { ModelAlias } from "./registry.js";
 import type { Anchor, ReaderNode } from "./types.js";
 
 export interface ReaderEvents {
@@ -9,6 +10,10 @@ export interface ReaderEvents {
   "node.created": { node: ReaderNode };
   "run.completed": { runId: string; nodeId: string; ok: boolean };
   "source.changed": { sourceId: string; path: string; hash: string };
+  /** 一次 LLM 调用开始（已通过能力检查）。nodeId 为空串表示不属于任何节点。 */
+  "run.started": { runId: string; nodeId: string; providerId: string; alias: ModelAlias; modelId: string };
+  /** 全局设置已保存。keys 为变化的路径（最多两层），不含密钥。 */
+  "settings.changed": { keys: string[] };
 }
 
 export type ReaderEventName = keyof ReaderEvents;
@@ -18,6 +23,8 @@ export const EVENT_NAMES: readonly ReaderEventName[] = [
   "node.created",
   "run.completed",
   "source.changed",
+  "run.started",
+  "settings.changed",
 ];
 
 export class EventBus {

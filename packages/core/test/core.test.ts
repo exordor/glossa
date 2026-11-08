@@ -18,6 +18,8 @@ describe("事件名与 schemas/events.json 一致", () => {
       events: Array<{ name: string }>;
     };
     expect(schema.events.map((e) => e.name)).toEqual([...EVENT_NAMES]);
+    expect(EVENT_NAMES).toContain("run.started");
+    expect(EVENT_NAMES).toContain("settings.changed");
   });
 
   it("负载被结构化克隆，订阅者改不到发送方对象", () => {

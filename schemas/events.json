@@ -5,6 +5,8 @@
     { "name": "selection.changed", "payload": "{ sourceId: string; anchor: Anchor | null }", "description": "阅读器里的选区变化（文字选区或矩形框选）。" },
     { "name": "node.created", "payload": "{ node: ReaderNode }", "description": "画布上新建了节点，包括界面、AI、agent、插件创建的。" },
     { "name": "run.completed", "payload": "{ runId: string; nodeId: string; ok: boolean }", "description": "一次 LLM 调用结束，详情在 runs/*.jsonl。" },
-    { "name": "source.changed", "payload": "{ sourceId: string; path: string; hash: string }", "description": "来源文件被外部修改，hash 已更新。" }
+    { "name": "source.changed", "payload": "{ sourceId: string; path: string; hash: string }", "description": "来源文件被外部修改，hash 已更新。" },
+    { "name": "run.started", "payload": "{ runId: string; nodeId: string; providerId: string; alias: ModelAlias; modelId: string }", "description": "一次 LLM 调用开始（已通过能力检查）。nodeId 为空串表示不属于任何节点。" },
+    { "name": "settings.changed", "payload": "{ keys: string[] }", "description": "全局设置已保存，keys 为变化的路径（最多两层），如 \"llm.providers\"。不含密钥。" }
   ]
 }

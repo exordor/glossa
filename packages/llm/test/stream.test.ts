@@ -1,0 +1,104 @@
+import type { ProviderSettings } from "@reader/core";
+import { MockLanguageModelV4 } from "ai/test";
+import { describe, expect, it } from "vitest";
+import { createLlmClient } from "../src/index.js";
+import { collect, sampleParts, stable, streamOf } from "./helpers.js";
+
+const settings: ProviderSettings = {
+  kind: "test",
+  aliases: { fast: { model: "m-fast", reasoning: "none" }, smart: { model: "m-smart", reasoning: "high" }, vision: null, image: null },
+  capabilities: {},
+};
+
+describe("流式映射（MockLanguageModelV4）", () => {
+  it("思考、文本、结束 → LlmChunk 序列和用量；reasoning 透传给模型", async () => {
+    const model = new MockLanguageModelV4({ modelId: "m-smart", doStream: async () => streamOf(sampleParts()) });
+    const client = createLlmClient({ providerId: "test", settings, languageModel: () => model, recordings: { mode: "off" } });
+    const ac = new AbortController();
+    const chunks = await collect(client.stream({ runId: "r1", alias: "smart", instructions: "简短", messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] }, ac.signal));
+    expect(stable(chunks)).toEqual([
+      { type: "start", runId: "r1", providerId: "test", alias: "smart", modelId: "m-smart", notes: [] },
+      { type: "reasoning", delta: "想一想" },
+      { type: "text", delta: "你好" },
+      { type: "text", delta: "，世界" },
+      { type: "finish", finishReason: "stop", usage: { inputTokens: 12, outputTokens: 7, reasoningTokens: 3 } },
+    ]);
+    const fin = chunks.at(-1) as Extract<(typeof chunks)[number], { type: "finish" }>;
+    expect(fin.firstChunkMs).toBeGreaterThanOrEqual(0);
+    expect(model.doStreamCalls[0]?.reasoning).toBe("high");
+    expect(model.doStreamCalls[0]?.prompt[0]).toMatchObject({ role: "system", content: "简短" });
+    expect(structuredClone(chunks)).toEqual(chunks);
+  });
+
+  it("模型抛错 → error 分块（不抛异常）", async () => {
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        throw Object.assign(new Error("bad key"), { name: "GatewayAuthenticationError", statusCode: 401 });
+      },
+    });
+    const client = createLlmClient({ providerId: "test", settings, languageModel: () => model, recordings: { mode: "off" } });
+    const chunks = await collect(client.stream({ runId: "r2", alias: "fast", messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] }, new AbortController().signal));
+    expect(chunks.map((c) => c.type)).toEqual(["start", "error"]);
+    expect(chunks[1]).toMatchObject({ error: { code: "unauthorized" } });
+  });
+
+  it("已取消的 signal → aborted", async () => {
+    const model = new MockLanguageModelV4({ doStream: async () => streamOf(sampleParts()) });
+    const client = createLlmClient({ providerId: "test", settings, languageModel: () => model, recordings: { mode: "off" } });
+    const ac = new AbortController();
+    ac.abort();
+    const chunks = await collect(client.stream({ runId: "r3", alias: "fast", messages: [] }, ac.signal));
+    expect(chunks.at(-1)).toMatchObject({ type: "error", error: { code: "aborted" } });
+  });
+
+  const hi = [{ role: "user" as const, content: [{ type: "text" as const, text: "hi" }] }];
+
+  it("首块超时 / 块间超时 → timeout（等待超时，可重试），不是「已取消」", async () => {
+    const stalled = (parts: unknown[]) => ({
+      stream: new ReadableStream({
+        start(ctl) {
+          for (const p of parts) ctl.enqueue(p);
+          // 之后永远不再发块，也不关闭。
+        },
+      }),
+    });
+    // 首块：一个块都不发。
+    const silent = new MockLanguageModelV4({ doStream: async () => stalled([]) as never });
+    const c1 = createLlmClient({ providerId: "test", settings, languageModel: () => silent, recordings: { mode: "off" }, timeouts: { firstChunkMs: 50 } });
+    const a = await collect(c1.stream({ runId: "t1", alias: "fast", messages: hi }, new AbortController().signal));
+    expect(a.at(-1)).toMatchObject({ type: "error", error: { code: "timeout", message: "等待超时", retryable: true } });
+    // 块间：发了第一个字之后卡住。
+    const parts = sampleParts().slice(0, 7);
+    const stuck = new MockLanguageModelV4({ doStream: async () => stalled(parts) as never });
+    const c2 = createLlmClient({ providerId: "test", settings, languageModel: () => stuck, recordings: { mode: "off" }, timeouts: { chunkMs: 50 } });
+    const b = await collect(c2.stream({ runId: "t2", alias: "fast", messages: hi }, new AbortController().signal));
+    expect(b.some((c) => c.type === "text")).toBe(true);
+    expect(b.at(-1)).toMatchObject({ type: "error", error: { code: "timeout" } });
+  });
+
+  it("流进行中调用方取消 → aborted", async () => {
+    const ac = new AbortController();
+    const model = new MockLanguageModelV4({
+      doStream: async () =>
+        ({
+          stream: new ReadableStream({
+            start(ctl) {
+              for (const p of sampleParts().slice(0, 7)) ctl.enqueue(p);
+              setTimeout(() => ac.abort(), 10);
+            },
+          }),
+        }) as never,
+    });
+    const client = createLlmClient({ providerId: "test", settings, languageModel: () => model, recordings: { mode: "off" } });
+    const chunks = await collect(client.stream({ runId: "t3", alias: "fast", messages: hi }, ac.signal));
+    expect(chunks.at(-1)).toMatchObject({ type: "error", error: { code: "aborted" } });
+  });
+
+  it("能力检查失败时不调用模型", async () => {
+    const model = new MockLanguageModelV4({ doStream: async () => streamOf(sampleParts()) });
+    const client = createLlmClient({ providerId: "test", settings, languageModel: () => model, recordings: { mode: "off" } });
+    const chunks = await collect(client.stream({ runId: "r4", alias: "image", messages: [] }, new AbortController().signal));
+    expect(chunks).toMatchObject([{ type: "error", error: { code: "capability_missing" } }]);
+    expect(model.doStreamCalls).toHaveLength(0);
+  });
+});

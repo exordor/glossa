@@ -3,6 +3,7 @@ import "tldraw/tldraw.css";
 import "katex/dist/katex.min.css";
 import "./app.css";
 import "./cards.css";
+import "./settings.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";

@@ -1,0 +1,20 @@
+{
+  "name": "@reader/llm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "LLM 网关：内置 provider（Vercel AI Gateway、DeepSeek、OpenAI 兼容）、能力检查、录制回放。只有这个包依赖 AI SDK。",
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "3.0.85",
+    "@reader/core": "workspace:*",
+    "ai": "7.0.163",
+    "zod": "4.6.7"
+  }
+}

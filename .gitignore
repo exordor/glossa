@@ -7,3 +7,7 @@ dist/
 **/.canvas/cache/
 **/.canvas/stats.jsonl
 tmp/
+# 密钥只放本机：.env.local 等不进仓库，.env.example 是模板
+.env
+.env.*
+!.env.example

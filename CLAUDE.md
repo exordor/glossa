@@ -15,6 +15,7 @@
 | `packages/core` (`@reader/core`) | 数据模型、JSON Canvas 读写、nodes/*.md 双写、注册表、事件总线。界面、CLI、MCP、插件**只**通过它访问数据。 |
 | `packages/theme` (`@reader/theme`) | tokens.json → `--rd-*` CSS 变量（cascade layers：locked, base, theme, snippets）；主题分层与对比度校验。 |
 | `packages/source-markdown` | 第一个 SourceAdapter：Markdown 锚点三层定位。 |
+| `packages/llm` (`@reader/llm`) | LLM 网关实现：三个内置 provider（vercel-gateway、deepseek、openai-compatible）、能力检查、录制回放。只有它依赖 AI SDK；界面只调 `reader.llm`。 |
 | `apps/web` | Vite + React + tldraw 界面。 |
 | `schemas/` | 所有落盘格式的 JSON Schema 和事件名（`events.json`）。 |
 | `fixtures/` | 测试夹具：`sample-book/`（3 章，含图片、公式、代码块、表格）。 |

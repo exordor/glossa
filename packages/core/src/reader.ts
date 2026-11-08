@@ -6,13 +6,15 @@ import { EventBus } from "./events.js";
 import { newId } from "./ids.js";
 import { type LoadedCanvas, loadCanvas, saveCanvas } from "./canvas-store.js";
 import { Registry } from "./registry.js";
+import { type LlmService, createAppLlm } from "./llm-service.js";
+import type { SettingsStore } from "./settings.js";
 import { type ImportResult, type ViewState, importBook, readBook, readView, writeView } from "./book.js";
 import type { Book } from "./types.js";
 import type { ReaderEdge, ReaderMeta, ReaderNode } from "./types.js";
 import { SCHEMA_VERSION } from "./types.js";
 import type { Vault } from "./vault.js";
 
-export const API_VERSION = "0.1.0";
+export const API_VERSION = "0.2.0";
 
 export interface CreateNodeInput {
   type: ReaderMeta["type"];
@@ -32,14 +34,26 @@ export interface CreateNodeInput {
   withinNodeId?: string;
 }
 
+export interface ReaderOptions {
+  /** 全局设置的存取（浏览器走 dev bridge，Node 用 NodeSettingsStore）；不传时用内存实现，不落盘。 */
+  settings?: SettingsStore;
+}
+
 export class Reader {
   readonly apiVersion = API_VERSION;
   readonly registry = new Registry();
   readonly events = new EventBus();
+  /** LLM 网关：run / cancel / test / listModels / 设置读写。provider 要另外注册到 registry。 */
+  readonly llm: LlmService;
   private canvas: LoadedCanvas | null = null;
   private bodies: Record<string, string> = {};
 
-  constructor(readonly vault: Vault) {}
+  constructor(
+    readonly vault: Vault,
+    opts: ReaderOptions = {},
+  ) {
+    this.llm = createAppLlm({ registry: this.registry, events: this.events, settings: opts.settings }).llm;
+  }
 
   async open(): Promise<{ nodes: number; edges: number; repaired: string[] }> {
     this.canvas = await loadCanvas(this.vault);
@@ -73,6 +87,23 @@ export class Reader {
     c.nodes.push(node);
     if (input.body !== undefined) this.bodies[node.id] = input.body;
     this.events.emit("node.created", { node });
+    return structuredClone(node);
+  }
+
+  /**
+   * 改节点的显示内容或状态（AI 卡流式写入、完成、失败）。只改内存，save() 时落盘；
+   * body 是 nodes/<id>.md 的正文（回答全文）。节点不存在时返回 null。
+   */
+  async updateNode(
+    id: string,
+    patch: { text?: string; label?: string; status?: ReaderMeta["status"]; body?: string },
+  ): Promise<ReaderNode | null> {
+    const node = this.require().nodes.find((n) => n.id === id);
+    if (!node) return null;
+    if (patch.text !== undefined) node.text = patch.text;
+    if (patch.label !== undefined) node.label = patch.label;
+    if (patch.status !== undefined) node.meta.status = patch.status;
+    if (patch.body !== undefined) this.bodies[id] = patch.body;
     return structuredClone(node);
   }
 
@@ -125,8 +156,15 @@ export class Reader {
   }
 
   async save(): Promise<void> {
-    await saveCanvas(this.vault, this.require(), { bodies: this.bodies });
+    // 先换出待写正文再 await：保存进行中 updateNode 设的正文（如流式回答结束时）留给下一次 save，不会被清掉。
+    const bodies = this.bodies;
     this.bodies = {};
+    try {
+      await saveCanvas(this.vault, this.require(), { bodies });
+    } catch (e) {
+      this.bodies = { ...bodies, ...this.bodies };
+      throw e;
+    }
   }
 
   private require(): LoadedCanvas {
@@ -135,6 +173,6 @@ export class Reader {
   }
 }
 
-export function createReader(vault: Vault): Reader {
-  return new Reader(vault);
+export function createReader(vault: Vault, opts: ReaderOptions = {}): Reader {
+  return new Reader(vault, opts);
 }

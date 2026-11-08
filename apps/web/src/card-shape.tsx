@@ -55,6 +55,11 @@ export function emitLocate(nodeId: string) {
   window.dispatchEvent(new CustomEvent("glossa:locate", { detail: { nodeId } }));
 }
 
+/** 失败的回答卡上的「重试」：BookView 监听，用同一请求重新生成。 */
+export function emitRetry(nodeId: string) {
+  window.dispatchEvent(new CustomEvent("glossa:retry", { detail: { nodeId } }));
+}
+
 export class CardShapeUtil extends ShapeUtil<CardShape> {
   static override type = CARD_TYPE;
   static override props = {
@@ -144,6 +149,20 @@ export class CardShapeUtil extends ShapeUtil<CardShape> {
                   <Icon name={badge.icon} />
                   {badge.text}
                 </span>
+              )}
+              {p.nodeType === "answer" && p.state === "failed" && (
+                <button
+                  className="rc-iconbtn rc-iconbtn-sm rc-retry"
+                  aria-label="重试"
+                  title="重试"
+                  onPointerDown={stop}
+                  onClick={(e) => {
+                    stop(e);
+                    emitRetry(p.nodeId);
+                  }}
+                >
+                  <Icon name="st-retry" />
+                </button>
               )}
               {p.hasAnchor && (
                 <button
