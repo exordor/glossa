@@ -3,7 +3,7 @@
  * 需要留下来时点「钉到画布」，生成摘录卡 + 回答卡。公开选择器 [data-rc="inline-card"] 给主题用。
  */
 import { useMemo } from "react";
-import { type AnswerDepth, type Citation, DEPTH_LABEL } from "@reader/core";
+import { type AnswerDepth, type AssembledContext, type Citation, DEPTH_LABEL } from "@reader/core";
 import { citeSummary } from "./cite";
 import { Icon } from "./icons";
 import { MarkdownFull } from "./mini-markdown";
@@ -23,6 +23,8 @@ export interface InlineCardState {
   depth: AnswerDepth;
   /** 生成结束后的引用校验结果。 */
   citations: Citation[];
+  /** 本次发给 AI 的上下文。 */
+  context?: AssembledContext;
 }
 
 export function InlineCard({
@@ -31,12 +33,14 @@ export function InlineCard({
   onRetry,
   onClose,
   onDepth,
+  onContext,
 }: {
   card: InlineCardState;
   onPin: () => void;
   onRetry: () => void;
   onClose: () => void;
   onDepth: (depth: AnswerDepth) => void;
+  onContext: () => void;
 }) {
   const cites = useMemo(() => new Map(card.citations.map((c) => [c.quote, c.verified])), [card.citations]);
   const cite = card.status === "done" ? citeSummary(card.citations) : null;
@@ -86,6 +90,9 @@ export function InlineCard({
             </button>
           ))}
         </span>
+        <button className="rc-iconbtn" aria-label="本次上下文" title="本次上下文：发给 AI 的内容" disabled={!card.context} onClick={onContext}>
+          <Icon name="context" />
+        </button>
         {card.status === "failed" && (
           <button className="btn btn-sm" onClick={onRetry}>
             重试

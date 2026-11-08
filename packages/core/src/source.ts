@@ -50,6 +50,9 @@ export type ContextPart =
       selected: string;
       sentence?: string;
       paragraph?: string;
+      /** 同一小节里所在段之前 / 之后的块（各最多 2 个，近的贴着所在段），上下文组装第 4 项用。 */
+      before?: string[];
+      after?: string[];
       headingPath: string[];
     }
   | { kind: "image"; mediaType: string; data: Uint8Array | string; caption?: string };

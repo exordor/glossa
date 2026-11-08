@@ -59,6 +59,11 @@ export function emitLocate(nodeId: string) {
   window.dispatchEvent(new CustomEvent("glossa:locate", { detail: { nodeId } }));
 }
 
+/** 回答卡上的「本次上下文」：BookView 监听，打开面板。 */
+export function emitContext(nodeId: string) {
+  window.dispatchEvent(new CustomEvent("glossa:context", { detail: { nodeId } }));
+}
+
 /** 失败的回答卡上的「重试」：BookView 监听，用同一请求重新生成。 */
 export function emitRetry(nodeId: string) {
   window.dispatchEvent(new CustomEvent("glossa:retry", { detail: { nodeId } }));
@@ -157,6 +162,20 @@ export class CardShapeUtil extends ShapeUtil<CardShape> {
                   <Icon name={badge.icon} />
                   {badge.text}
                 </span>
+              )}
+              {p.nodeType === "answer" && p.state !== "running" && (
+                <button
+                  className="rc-iconbtn rc-iconbtn-sm rc-context"
+                  aria-label="本次上下文"
+                  title="本次上下文：发给 AI 的内容"
+                  onPointerDown={stop}
+                  onClick={(e) => {
+                    stop(e);
+                    emitContext(p.nodeId);
+                  }}
+                >
+                  <Icon name="context" />
+                </button>
               )}
               {p.nodeType === "answer" && p.state === "failed" && (
                 <button
