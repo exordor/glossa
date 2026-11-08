@@ -6,7 +6,7 @@
   "description": "核心 API：数据模型、文件格式、注册表、事件总线。界面、CLI、MCP、插件只通过它访问数据。",
   "exports": {
     ".": "./src/index.ts",
-    "./node": "./src/vault-node.ts"
+    "./node": "./src/node.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

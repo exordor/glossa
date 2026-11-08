@@ -1,0 +1,30 @@
+{
+	"object": "list",
+	"data": [
+		{
+			"id": "deepseek/deepseek-v4.1-flash-1017",
+			"object": "model",
+			"name": "DeepSeek V4.1 Flash 1017",
+			"owned_by": "deepseek",
+			"type": "language",
+			"context_window": 1048576,
+			"max_tokens": 262144,
+			"tags": ["reasoning", "tool-use", "vision", "file-input"],
+			"modalities": { "input": ["text", "image"], "output": ["text"] },
+			"reasoning_options": ["none", "low", "high", "max"],
+			"supported_parameters": ["tools", "response_format", "reasoning"],
+			"pricing": { "input": "0.0000003", "output": "0.0000012", "input_cache_read": "0.00000003" }
+		},
+		{
+			"id": "deepseek/deepseek-v4-pro-0813",
+			"name": "DeepSeek V4 Pro 0813",
+			"type": "language",
+			"context_window": 1048576,
+			"max_tokens": 262144,
+			"tags": ["reasoning", "tool-use"],
+			"modalities": { "input": ["text"], "output": ["text"] },
+			"reasoning_options": ["none", "low", "high", "max"]
+		},
+		{ "id": "openai/text-embedding-3-small", "type": "embedding" }
+	]
+}

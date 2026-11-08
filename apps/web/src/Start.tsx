@@ -1,10 +1,17 @@
 import { useEffect, useState } from "react";
 import type { Vault } from "@reader/core";
+import { Icon } from "./icons";
 import { sampleBookVault } from "./sample-book";
 import { FsAccessVault, ensurePermission, fsAccessSupported, lastFolder, pickFolder, rememberFolder } from "./vault-fsaccess";
 
 /** 首次打开：选一个书文件夹（一章一个 .md），或先看示例书。 */
-export function Start({ onOpen }: { onOpen: (vault: Vault, name: string, persistent: boolean) => Promise<void> }) {
+export function Start({
+  onOpen,
+  onOpenSettings,
+}: {
+  onOpen: (vault: Vault, name: string, persistent: boolean) => Promise<void>;
+  onOpenSettings: () => void;
+}) {
   const [last, setLast] = useState<FileSystemDirectoryHandle | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -34,6 +41,11 @@ export function Start({ onOpen }: { onOpen: (vault: Vault, name: string, persist
 
   return (
     <div className="start">
+      <div className="start-tools">
+        <button className="rc-iconbtn" aria-label="设置" title="设置" onClick={onOpenSettings}>
+          <Icon name="settings" size={20} />
+        </button>
+      </div>
       <h1 className="start-title">Glossa</h1>
       <p className="start-lead">选一个书文件夹开始读。文件夹里一章一个 .md，按文件名排序；画布和批注存在它里面的 .canvas/ 目录，原文件不会被修改。</p>
       <div className="start-actions">

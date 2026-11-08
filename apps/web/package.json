@@ -9,7 +9,7 @@
     "prebuild": "pnpm --filter @reader/theme build",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json"
   },
   "dependencies": {
     "@reader/core": "workspace:*",
@@ -20,7 +20,8 @@
     "tldraw": "^5.6.0",
     "katex": "^0.16.22",
     "hast-util-to-jsx-runtime": "^2.3.7",
-    "lucide-react": "0.460.0"
+    "lucide-react": "0.460.0",
+    "@reader/llm": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

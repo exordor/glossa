@@ -1,0 +1,76 @@
+{
+	"schemaVersion": 1,
+	"promptHash": "de88a4cf78bef7e0a9c4ef312edbdd35518bb6de4ef48c6d8e702d8e1be07415",
+	"modelId": "deepseek/deepseek-v4.1-flash-1017",
+	"kind": "stream",
+	"recordedAt": "2026-11-08T00:00:00.000Z",
+	"request": {
+		"prompt": [
+			{
+				"content": "用一句中文回答。",
+				"role": "system"
+			},
+			{
+				"content": [
+					{
+						"text": "请用一句话介绍你自己，并说出你的模型名称。",
+						"type": "text"
+					}
+				],
+				"role": "user"
+			}
+		]
+	},
+	"parts": [
+		{
+			"type": "stream-start",
+			"warnings": []
+		},
+		{
+			"id": "gen_handwritten_0001",
+			"modelId": "deepseek/deepseek-v4.1-flash-1017",
+			"timestamp": "2026-11-08T00:00:00.000Z",
+			"type": "response-metadata"
+		},
+		{
+			"id": "0",
+			"type": "text-start"
+		},
+		{
+			"delta": "我是 DeepSeek 的",
+			"id": "0",
+			"type": "text-delta"
+		},
+		{
+			"delta": "语言模型 deepseek-v4.1-flash-1017，",
+			"id": "0",
+			"type": "text-delta"
+		},
+		{
+			"delta": "可以帮你解释和回答问题。",
+			"id": "0",
+			"type": "text-delta"
+		},
+		{
+			"id": "0",
+			"type": "text-end"
+		},
+		{
+			"finishReason": {
+				"raw": "stop",
+				"unified": "stop"
+			},
+			"type": "finish",
+			"usage": {
+				"inputTokens": {
+					"noCache": 31,
+					"total": 31
+				},
+				"outputTokens": {
+					"text": 24,
+					"total": 24
+				}
+			}
+		}
+	]
+}

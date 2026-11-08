@@ -2,6 +2,7 @@
  * 扩展点注册表（设计文档「主题与第三方插件接口」）。
  * 内置动作、来源适配器、面板从第一天起都用 register() 注册，不走后门；第三方插件在 v0.3 用同一个入口。
  */
+import type { LlmProviderContribution } from "./llm.js";
 import type { SourceAdapter } from "./source.js";
 
 export interface ActionTemplate {
@@ -59,7 +60,8 @@ export interface ExtensionPoints {
   command: CommandContribution;
   panel: PanelContribution;
   contextProvider: ContextProviderContribution;
-  llmProvider: { id: string; create: (config: unknown) => unknown };
+  /** LLM 服务商：vercel-gateway、deepseek、openai-compatible 内置；见 llm.ts。 */
+  llmProvider: LlmProviderContribution;
   tool: { id: string; server: string };
 }
 

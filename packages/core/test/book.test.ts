@@ -85,4 +85,19 @@ describe("导入一本书", () => {
     await r.saveView({ openSourceId: book.sources[0]!.id });
     expect(await r.getView()).toMatchObject({ camera: { x: 1, y: 2, z: 0.5 }, openSourceId: book.sources[0]!.id });
   });
+
+  it("updateNode 改文字与状态，正文在 save() 时写进 nodes/<id>.md", async () => {
+    const vault = sampleBookVault();
+    const r = await openReader(vault);
+    await r.importBook("sample-book");
+    const n = await r.createNode({ type: "answer", x: 0, y: 0, width: 360, height: 148, createdBy: "ai", status: "running", text: "" });
+    expect(await r.updateNode("不存在", { text: "x" })).toBeNull();
+    await r.updateNode(n.id, { text: "部分" });
+    const done = await r.updateNode(n.id, { text: "完整回答", status: "done", body: "完整回答\n\n第二段" });
+    expect([done?.text, done?.meta.status]).toEqual(["完整回答", "done"]);
+    await r.save();
+    const file = await vault.readText(`.canvas/nodes/${n.id}.md`);
+    expect(file).toContain("status: done");
+    expect(file).toContain("第二段");
+  });
 });

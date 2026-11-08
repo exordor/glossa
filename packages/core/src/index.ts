@@ -13,3 +13,6 @@ export * from "./quote.js";
 export * from "./hash.js";
 export * from "./reader.js";
 export * from "./book.js";
+export * from "./llm.js";
+export * from "./settings.js";
+export * from "./llm-service.js";

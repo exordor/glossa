@@ -13,10 +13,11 @@
     "obsidian:check": "tsx scripts/obsidian-roundtrip.ts check"
   },
   "devDependencies": {
+    "@reader/core": "workspace:*",
     "@types/node": "^22.10.0",
+    "ajv": "8.17.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^3.0.0",
-    "@reader/core": "workspace:*"
+    "vitest": "^3.0.0"
   }
 }

@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/exordor/glossa/schemas/settings.schema.json",
+  "title": "全局设置（~/.reader/settings.json）",
+  "description": "provider、模型别名映射、能力表、预算、首次启动引导状态。不含密钥。未知字段读入时保留。",
+  "type": "object",
+  "required": ["schemaVersion", "llm", "onboarding"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "llm": {
+      "type": "object",
+      "required": ["activeProvider", "providers", "budget"],
+      "properties": {
+        "activeProvider": { "type": "string", "description": "注册表 llmProvider 的 id：vercel-gateway / deepseek / openai-compatible" },
+        "providers": {
+          "type": "object",
+          "description": "按 provider id。只存用户改过的部分，其余取 provider 默认值。",
+          "additionalProperties": { "$ref": "#/$defs/providerSettings" }
+        },
+        "budget": {
+          "type": "object",
+          "required": ["contextFraction", "contextTokens"],
+          "properties": {
+            "contextFraction": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+            "contextTokens": { "type": ["integer", "null"], "minimum": 1 }
+          }
+        }
+      }
+    },
+    "onboarding": {
+      "type": "object",
+      "required": ["status", "updatedAt"],
+      "properties": {
+        "status": { "enum": ["pending", "done", "skipped"] },
+        "updatedAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    }
+  },
+  "$defs": {
+    "reasoning": { "enum": ["none", "low", "high", "max"] },
+    "aliasBinding": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["model"],
+          "properties": {
+            "model": { "type": "string", "minLength": 1 },
+            "reasoning": { "$ref": "#/$defs/reasoning" },
+            "maxOutputTokens": { "type": "integer", "minimum": 1 }
+          }
+        }
+      ]
+    },
+    "capability": {
+      "type": "object",
+      "required": ["modelId", "label", "input", "output", "contextWindow", "maxOutputTokens", "reasoningLevels", "structuredOutput", "toolUse", "pricing", "source", "fetchedAt"],
+      "properties": {
+        "modelId": { "type": "string" },
+        "label": { "type": "string" },
+        "input": {
+          "type": "object",
+          "required": ["text", "image", "pdf"],
+          "properties": { "text": { "type": "boolean" }, "image": { "type": "boolean" }, "pdf": { "type": "boolean" } }
+        },
+        "output": {
+          "type": "object",
+          "required": ["text", "image"],
+          "properties": { "text": { "type": "boolean" }, "image": { "type": "boolean" } }
+        },
+        "contextWindow": { "type": "integer", "minimum": 0, "description": "0 表示未知" },
+        "maxOutputTokens": { "type": "integer", "minimum": 0, "description": "0 表示未知" },
+        "reasoningLevels": { "type": "array", "items": { "$ref": "#/$defs/reasoning" } },
+        "structuredOutput": { "type": ["boolean", "null"] },
+        "toolUse": { "type": "boolean" },
+        "pricing": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["inputPerMTok", "outputPerMTok"],
+              "properties": {
+                "inputPerMTok": { "type": "number", "minimum": 0 },
+                "outputPerMTok": { "type": "number", "minimum": 0 },
+                "cachedInputPerMTok": { "type": "number", "minimum": 0 }
+              }
+            }
+          ],
+          "description": "美元 / 百万 token；null 表示未知"
+        },
+        "source": { "enum": ["builtin", "remote"] },
+        "fetchedAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "providerSettings": {
+      "type": "object",
+      "not": { "anyOf": [{ "required": ["apiKey"] }, { "required": ["api_key"] }] },
+      "properties": {
+        "kind": { "type": "string" },
+        "baseURL": { "type": "string", "format": "uri", "description": "openai-compatible 的上游地址；dev bridge 在服务端读它决定转发目标" },
+        "routing": { "type": "object", "description": "Vercel AI Gateway 路由：order / only / zeroDataRetention" },
+        "aliases": {
+          "type": "object",
+          "properties": {
+            "fast": { "$ref": "#/$defs/aliasBinding" },
+            "smart": { "$ref": "#/$defs/aliasBinding" },
+            "vision": { "$ref": "#/$defs/aliasBinding" },
+            "image": { "$ref": "#/$defs/aliasBinding" }
+          },
+          "additionalProperties": false
+        },
+        "capabilities": { "type": "object", "additionalProperties": { "$ref": "#/$defs/capability" } }
+      }
+    }
+  }
+}

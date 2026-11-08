@@ -1,18 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type Editor, Tldraw } from "tldraw";
-import type { ReaderNode, SourceDoc } from "@reader/core";
+import { type ActionTemplate, type ReaderNode, type SourceDoc, newId } from "@reader/core";
 import { markdownAdapter } from "@reader/source-markdown";
 import { loadChapterAssets } from "./assets";
-import { CARD_SIZE, nodeIdOf, shapeIdOf, syncShapes } from "./canvas-sync";
-import { CardShapeUtil } from "./card-shape";
+import { CARD_SIZE, cardPropsOf, nodeIdOf, shapeIdOf, syncShapes } from "./canvas-sync";
+import { CARD_TYPE, CardShapeUtil } from "./card-shape";
 import { EdgeShapeUtil } from "./edge-shape";
 import { seedDemoCards } from "./demo-cards";
+import { Icon } from "./icons";
+import { aiReadiness, llmErrorText } from "./llm";
 import type { BookSession } from "./session";
 import { SourceReader, type TextRange } from "./SourceReader";
 
 /** 新卡放在来源（章节卡）这一列最下面一张卡的下方。 */
 const STACK_GAP = 40;
 const SHAPE_UTILS = [CardShapeUtil, EdgeShapeUtil];
+
+/** 第 4 步的临时提示词（模板、结构化输出、上下文组装是第 5、6 步）。 */
+const STREAM_PROMPTS: Record<string, string> = {
+  explain: "用中文解释下面这段文字，先给一句话结论，再展开。",
+  ask: "下面是读者从书里选中的一段文字，把它当作读者的问题，用中文回答：先给一句话结论，再展开。",
+};
 
 /** 跳回原文：滚到锚点所在的文字并闪一下。 */
 function flashRange(root: HTMLElement, start: number, end: number) {
@@ -43,7 +51,7 @@ function debounce<A extends unknown[]>(fn: (...a: A) => void, ms: number) {
   };
 }
 
-export function BookView({ session, onClose }: { session: BookSession; onClose: () => void }) {
+export function BookView({ session, onClose, onOpenSettings }: { session: BookSession; onClose: () => void; onOpenSettings: () => void }) {
   const { reader, book } = session;
   const [editor, setEditor] = useState<Editor | null>(null);
   const [openSourceId, setOpenSourceId] = useState<string | null>(null);
@@ -52,6 +60,25 @@ export function BookView({ session, onClose }: { session: BookSession; onClose: 
   const [saveError, setSaveError] = useState<string | null>(null);
   const actions = useMemo(() => reader.registry.list("action"), [reader]);
   const nodesRef = useRef<ReaderNode[]>([]);
+  const [toast, setToast] = useState<{ text: string; detail: string } | null>(null);
+  /** 正在流式生成的回答：runId 集合。离开这本书时全部取消。 */
+  const runsRef = useRef(new Set<string>());
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const runs = runsRef.current;
+    return () => {
+      mountedRef.current = false;
+      for (const id of runs) void reader.llm.cancel(id);
+    };
+  }, [reader]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 8000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const save = useMemo(
     () =>
@@ -90,8 +117,10 @@ export function BookView({ session, onClose }: { session: BookSession; onClose: 
       cleanups.push(
         editor.store.listen(
           ({ changes }) => {
-            for (const [, to] of Object.values(changes.updated)) {
-              if (to.typeName === "shape") void reader.moveNode(nodeIdOf(to.id), Math.round(to.x), Math.round(to.y)).then(save);
+            for (const [from, to] of Object.values(changes.updated)) {
+              // 只处理位置变化：流式写回答时程序改的是 props，不能把卡标成 pinned，也不该每帧存盘。
+              if (to.typeName !== "shape" || from.typeName !== "shape" || (from.x === to.x && from.y === to.y)) continue;
+              void reader.moveNode(nodeIdOf(to.id), Math.round(to.x), Math.round(to.y)).then(save);
             }
           },
           { source: "user", scope: "document" },
@@ -184,10 +213,74 @@ export function BookView({ session, onClose }: { session: BookSession; onClose: 
     return () => cancelAnimationFrame(raf);
   }, [locate, chapter]);
 
+  /** 改一张卡的显示（不重建所有 shape）。 */
+  const refreshCard = useCallback(
+    (n: ReaderNode | null) => {
+      if (!n || !editor || !mountedRef.current) return;
+      const i = nodesRef.current.findIndex((x) => x.id === n.id);
+      if (i >= 0) nodesRef.current[i] = n;
+      if (editor.getShape(shapeIdOf(n.id))) editor.updateShape({ id: shapeIdOf(n.id), type: CARD_TYPE, props: cardPropsOf(n, book) });
+    },
+    [editor, book],
+  );
+
+  /** 流式写回答卡：文字增量每帧最多更新一次卡片，结束时存一次盘。 */
+  const streamAnswer = useCallback(
+    async (answerId: string, action: ActionTemplate, text: string, where: string[]) => {
+      const runId = newId();
+      runsRef.current.add(runId);
+      let acc = "";
+      let raf = 0;
+      const flush = () => {
+        raf = 0;
+        void reader.updateNode(answerId, { text: acc }).then(refreshCard);
+      };
+      const end = async (patch: { text: string; status: "done" | "failed" }) => {
+        if (raf) cancelAnimationFrame(raf);
+        raf = 0;
+        refreshCard(await reader.updateNode(answerId, { ...patch, body: patch.text }));
+        save();
+      };
+      try {
+        const source = where.length ? `\n\n（出自：${where.join(" › ")}）` : "";
+        for await (const c of reader.llm.run({
+          alias: action.model,
+          runId,
+          nodeId: answerId,
+          actionId: action.id,
+          instructions: STREAM_PROMPTS[action.id] ?? STREAM_PROMPTS.explain,
+          messages: [{ role: "user", content: [{ type: "text", text: text + source }] }],
+        })) {
+          if (c.type === "text") {
+            acc += c.delta;
+            if (!raf) raf = requestAnimationFrame(flush);
+          } else if (c.type === "finish") {
+            await end({ text: acc, status: "done" });
+          } else if (c.type === "error") {
+            const msg = llmErrorText(c.error);
+            await end({ text: acc ? `${acc}\n\n（中断：${msg}）` : msg, status: "failed" });
+          }
+        }
+      } finally {
+        runsRef.current.delete(runId);
+      }
+    },
+    [reader, refreshCard, save],
+  );
+
   const runAction = useCallback(
     async (actionId: string) => {
       if (!chapter || !selection || !editor) return;
       const action = reader.registry.get("action", actionId);
+      // 第 4 步：「解释」「提问」流式生成回答卡；「词义」「拆句」仍是占位（第 5 步）。
+      const streams = Boolean(action?.usesLLM && STREAM_PROMPTS[actionId]);
+      if (streams) {
+        const problem = await aiReadiness((await reader.llm.getSettings()).llm.activeProvider);
+        if (problem) {
+          setToast({ text: "未配置 AI", detail: problem });
+          return;
+        }
+      }
       const anchor = markdownAdapter.selectionToAnchor(chapter.doc, { kind: "text", ...selection });
       const nodes = await reader.listNodes();
       const chapterNode = nodes.find((n) => n.meta.type === "chapter" && n.meta.anchor?.sourceId === chapter.doc.sourceId);
@@ -195,20 +288,40 @@ export function BookView({ session, onClose }: { session: BookSession; onClose: 
       const column = nodes.filter((n) => n.meta.type !== "group" && n.x < x + (chapterNode?.width ?? 320) && n.x + n.width > x);
       const y = Math.max((chapterNode?.y ?? 0) + (chapterNode?.height ?? 120), ...column.map((n) => n.y + n.height)) + STACK_GAP;
       const size = action?.usesLLM ? CARD_SIZE.excerpt! : CARD_SIZE.note!;
-      // 第 5 步接入 AI 之前：「批注」生成批注卡，其余动作先生成摘录卡占位。
+      // 「批注」生成批注卡，其余 AI 动作先生成摘录卡；「解释」「提问」再接一张回答卡。
       const node = await reader.createNode(
         action?.usesLLM
           ? { type: "excerpt", x, y, width: size.w, height: size.h, anchor, text: anchor.quote.exact }
           : { type: "note", x, y, width: size.w, height: size.h, anchor, text: anchor.quote.exact, body: "" },
       );
+      let answerId: string | null = null;
+      if (streams) {
+        const a = CARD_SIZE.answer!;
+        const answer = await reader.createNode({
+          type: "answer",
+          x,
+          y: y + size.h + STACK_GAP,
+          width: a.w,
+          height: a.h,
+          createdBy: "ai",
+          status: "running",
+          text: "",
+        });
+        await reader.connect(node.id, answer.id, "derived");
+        answerId = answer.id;
+      }
       nodesRef.current = await reader.listNodes();
       syncShapes(editor, nodesRef.current, await reader.listEdges(), book);
-      editor.select(shapeIdOf(node.id));
+      editor.select(shapeIdOf(answerId ?? node.id));
       setSelection(null);
       window.getSelection()?.removeAllRanges();
       save();
+      if (answerId && action) {
+        const where = anchor.kind === "markdown" ? anchor.headingPath : [];
+        void streamAnswer(answerId, action, anchor.quote.exact, where);
+      }
     },
-    [chapter, selection, editor, reader, save, book],
+    [chapter, selection, editor, reader, save, book, streamAnswer],
   );
 
   return (
@@ -239,7 +352,30 @@ export function BookView({ session, onClose }: { session: BookSession; onClose: 
           {session.name}
           {!session.persistent && " · 示例书，改动不保存"}
           {saveError && <span className="canvas-error"> · 保存失败：{saveError}</span>}
+          <button className="rc-iconbtn" aria-label="设置" title="设置" onClick={onOpenSettings}>
+            <Icon name="settings" />
+          </button>
         </div>
+        {toast && (
+          <div className="ai-toast" role="status">
+            <span>
+              {toast.text}
+              <span className="ai-toast-detail"> · {toast.detail}</span>
+            </span>
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => {
+                setToast(null);
+                onOpenSettings();
+              }}
+            >
+              去设置
+            </button>
+            <button className="rc-iconbtn" aria-label="关闭提示" onClick={() => setToast(null)}>
+              <Icon name="close" />
+            </button>
+          </div>
+        )}
       </main>
       <aside className="reader" data-rc="reader">
         {selection && (

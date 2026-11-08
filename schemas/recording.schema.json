@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/exordor/glossa/schemas/recording.schema.json",
+  "title": "LLM 录制（fixtures/recordings/<promptHash>.json）",
+  "description": "测试回放用。promptHash = sha256(stableStringify({ modelId, prompt, maxOutputTokens, temperature, reasoning, responseFormat, tools, providerOptions }))。",
+  "type": "object",
+  "required": ["schemaVersion", "promptHash", "modelId", "kind", "recordedAt", "request"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "promptHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "modelId": { "type": "string", "minLength": 1 },
+    "kind": { "enum": ["stream", "generate"] },
+    "recordedAt": { "type": "string", "format": "date-time" },
+    "request": {
+      "type": "object",
+      "required": ["prompt"],
+      "properties": { "prompt": { "type": "array" } }
+    },
+    "parts": {
+      "type": "array",
+      "description": "LanguageModelV4StreamPart 序列；日期存 ISO 字符串",
+      "items": { "type": "object", "required": ["type"], "properties": { "type": { "type": "string" } } }
+    },
+    "result": { "type": "object" }
+  },
+  "allOf": [
+    { "if": { "properties": { "kind": { "const": "stream" } } }, "then": { "required": ["parts"] } },
+    { "if": { "properties": { "kind": { "const": "generate" } } }, "then": { "required": ["result"] } }
+  ]
+}

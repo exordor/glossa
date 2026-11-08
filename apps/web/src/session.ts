@@ -5,6 +5,7 @@
 import { Reader, type Book, type ImportResult, type Vault } from "@reader/core";
 import { registerMarkdownSource } from "@reader/source-markdown";
 import { registerBuiltinActions } from "./builtins";
+import { registerLlmProviders, settingsStore } from "./llm";
 
 export interface BookSession {
   reader: Reader;
@@ -16,9 +17,11 @@ export interface BookSession {
 }
 
 export async function openBook(vault: Vault, name: string, persistent: boolean): Promise<BookSession> {
-  const reader = new Reader(vault);
+  // 全局设置（~/.reader/settings.json）经 dev bridge 读写；和应用级 LLM 共用同一个存取对象。
+  const reader = new Reader(vault, { settings: settingsStore });
   registerMarkdownSource(reader.registry);
   registerBuiltinActions(reader.registry);
+  registerLlmProviders(reader.registry);
   reader.registry.register("panel", { id: "source", title: "原文", component: "SourcePanel" });
   reader.registry.register("panel", { id: "answer", title: "回答", component: "AnswerPanel" });
   reader.registry.register("panel", { id: "context", title: "本次上下文", component: "ContextPanel" });
