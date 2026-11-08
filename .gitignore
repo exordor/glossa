@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+# 设计文档「存储」一节：索引、缓存、统计不是数据的唯一副本
+**/.canvas/index.sqlite
+**/.canvas/cache/
+**/.canvas/stats.jsonl
+tmp/

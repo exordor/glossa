@@ -1,0 +1,10 @@
+{
+  "$comment": "事件名稳定。改名或删除要升 apiVersion 主版本。顺序与 packages/core/src/events.ts 的 EVENT_NAMES 一致（有测试校验）。",
+  "schemaVersion": 1,
+  "events": [
+    { "name": "selection.changed", "payload": "{ sourceId: string; anchor: Anchor | null }", "description": "阅读器里的选区变化（文字选区或矩形框选）。" },
+    { "name": "node.created", "payload": "{ node: ReaderNode }", "description": "画布上新建了节点，包括界面、AI、agent、插件创建的。" },
+    { "name": "run.completed", "payload": "{ runId: string; nodeId: string; ok: boolean }", "description": "一次 LLM 调用结束，详情在 runs/*.jsonl。" },
+    { "name": "source.changed", "payload": "{ sourceId: string; path: string; hash: string }", "description": "来源文件被外部修改，hash 已更新。" }
+  ]
+}

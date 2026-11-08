@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/exordor/glossa/schemas/plugin-manifest.schema.json",
+  "title": "插件 manifest",
+  "description": "~/.reader/plugins/<id>/manifest.json。v0.1 只定格式，加载器在 v0.3 打开。",
+  "type": "object",
+  "required": ["schemaVersion", "id", "name", "version", "apiVersion", "entry"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "name": { "type": "string" },
+    "version": { "type": "string", "description": "插件自己的语义化版本" },
+    "apiVersion": { "type": "string", "description": "依赖的 @reader/core API 版本范围，例如 ^1.0.0" },
+    "author": { "type": "string" },
+    "description": { "type": "string" },
+    "entry": { "type": "string", "description": "ES module 入口，通常是 main.js" },
+    "styles": { "type": "string" },
+    "permissions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["read:canvas", "write:canvas", "read:source", "llm", "network", "fs:assets"] }
+    },
+    "contributes": {
+      "type": "array",
+      "description": "声明会注册到哪些扩展点，安装时展示",
+      "items": { "$ref": "#/$defs/extensionPoint" }
+    }
+  },
+  "$defs": {
+    "extensionPoint": {
+      "enum": ["theme", "source", "action", "workflow", "nodeType", "command", "panel", "contextProvider", "llmProvider", "tool"]
+    }
+  }
+}

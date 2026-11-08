@@ -1,0 +1,83 @@
+/* 所有颜色、字号、间距、圆角都走 --rd-* 变量，组件里不写硬编码。 */
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+    background: var(--rd-surface);
+    color: var(--rd-ink);
+    font-family: var(--rd-font-ui);
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: var(--rd-size-rail) minmax(var(--rd-size-canvas-min), 1fr) minmax(var(--rd-size-reader-min), 40%);
+    height: 100%;
+  }
+
+  .rail {
+    border-right: 1px solid var(--rd-border);
+    background: var(--rd-surface-sunken);
+  }
+
+  .canvas {
+    position: relative;
+    background: var(--rd-canvas-ground);
+  }
+
+  .reader {
+    position: relative;
+    overflow: auto;
+    border-left: 1px solid var(--rd-border);
+    background: var(--rd-surface-paper);
+    padding: var(--rd-space-6);
+  }
+
+  .reader pre {
+    max-width: var(--rd-reader-measure);
+    margin: 0 auto;
+    white-space: pre-wrap;
+    font-family: var(--rd-font-reading);
+    font-size: var(--rd-reader-font-size);
+    line-height: var(--rd-reader-line-height);
+  }
+
+  .reader ::selection {
+    background: var(--rd-selection);
+  }
+
+  .popover {
+    position: sticky;
+    top: 0;
+    z-index: var(--rd-z-popover);
+    display: flex;
+    gap: var(--rd-space-1);
+    width: max-content;
+    margin: 0 auto var(--rd-space-3);
+    padding: var(--rd-space-1);
+    border: 1px solid var(--rd-border);
+    border-radius: var(--rd-radius-md);
+    background: var(--rd-surface-raised);
+    box-shadow: var(--rd-shadow-popover);
+  }
+
+  .popover button {
+    height: var(--rd-size-control-sm);
+    padding: 0 var(--rd-space-2);
+    border: 0;
+    border-radius: var(--rd-radius-sm);
+    background: transparent;
+    color: var(--rd-ink);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .popover button:hover {
+    background: var(--rd-surface-hover);
+  }
+
+  .popover button:focus-visible {
+    outline: var(--rd-stroke-focus) solid var(--rd-focus-ring);
+  }
+}

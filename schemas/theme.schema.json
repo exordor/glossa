@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/exordor/glossa/schemas/theme.schema.json",
+  "title": "主题",
+  "description": "~/.reader/themes/<id>/theme.json。只写要改的 token（不带 --rd- 前缀），锁定层 token 会被忽略，受约束层要过对比度校验。",
+  "type": "object",
+  "required": ["schemaVersion", "id", "name", "version", "modes", "tokens"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "name": { "type": "string" },
+    "author": { "type": "string" },
+    "version": { "type": "string" },
+    "modes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["light", "dark"] } },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "light": { "$ref": "#/$defs/tokenMap" },
+        "dark": { "$ref": "#/$defs/tokenMap" }
+      }
+    }
+  },
+  "$defs": {
+    "tokenMap": { "type": "object", "additionalProperties": { "type": "string" } }
+  }
+}
