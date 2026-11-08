@@ -21,8 +21,10 @@ export function defaultTokens(mode: Mode): TokenMap {
   }
   const fam = tokens.type.families as Record<string, string>;
   for (const [k, v] of Object.entries(fam)) out[`font-${k}`] = v;
-  for (const g of tokens.type.groups as Array<{ styles: Array<{ name: string; fontSize: string; lineHeight: string; fontWeight: number }> }>) {
+  for (const g of tokens.type.groups as Array<{ family: string; styles: Array<{ name: string; fontSize: string; lineHeight: string; fontWeight: number }> }>) {
     for (const s of g.styles) {
+      // 组合字体变量：组件里写 font: var(--rd-type-card-title)
+      out[`type-${s.name}`] = `${s.fontWeight} ${s.fontSize}/${s.lineHeight} var(--rd-font-${g.family})`;
       out[`text-${s.name}-size`] = s.fontSize;
       out[`text-${s.name}-line`] = s.lineHeight;
       out[`text-${s.name}-weight`] = String(s.fontWeight);

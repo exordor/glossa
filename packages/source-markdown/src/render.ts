@@ -92,3 +92,14 @@ export function resolveRelative(chapterPath: string, src: string): string | null
   }
   return base.join("/");
 }
+
+/** 列出章节里引用的全部图片 src（按出现顺序去重），供界面预先加载成 URL。 */
+export function collectImageSrcs(doc: SourceDoc): string[] {
+  const out = new Set<string>();
+  const walk = (n: { type: string; url?: string; children?: unknown[] }) => {
+    if (n.type === "image" && n.url) out.add(n.url);
+    for (const c of (n.children ?? []) as Array<typeof n>) walk(c);
+  };
+  walk((doc.tree as { root: MdRoot }).root as never);
+  return [...out];
+}

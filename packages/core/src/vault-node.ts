@@ -26,6 +26,14 @@ export class NodeVault implements Vault {
       throw e;
     }
   }
+  async readBytes(path: string) {
+    try {
+      return new Uint8Array(await readFile(join(this.root, path)));
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw e;
+    }
+  }
   async remove(path: string) {
     await rm(join(this.root, path), { force: true });
   }

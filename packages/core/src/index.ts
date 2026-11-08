@@ -12,3 +12,4 @@ export * from "./annotations.js";
 export * from "./quote.js";
 export * from "./hash.js";
 export * from "./reader.js";
+export * from "./book.js";
