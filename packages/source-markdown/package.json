@@ -4,17 +4,26 @@
   "private": true,
   "type": "module",
   "description": "Markdown 来源适配器：第一个 SourceAdapter 实现。",
-  "exports": { ".": "./src/index.ts" },
-  "scripts": { "typecheck": "tsc --noEmit" },
+  "exports": {
+    ".": "./src/index.ts",
+    "./render": "./src/render.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@reader/core": "workspace:*",
     "mdast-util-to-string": "^4.0.0",
     "remark-gfm": "^4.0.0",
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
-    "unified": "^11.0.5"
+    "unified": "^11.0.5",
+    "remark-rehype": "^11.1.2",
+    "rehype-katex": "^7.0.1",
+    "unist-util-visit": "^5.0.0"
   },
   "devDependencies": {
-    "@types/mdast": "^4.0.4"
+    "@types/mdast": "^4.0.4",
+    "@types/hast": "^3.0.5"
   }
 }
