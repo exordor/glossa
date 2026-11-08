@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/exordor/glossa/schemas/node-meta.schema.json",
+  "title": "节点元数据（x-reader / nodes/<id>.md front matter）",
+  "type": "object",
+  "required": ["schemaVersion", "type", "status", "createdBy", "createdAt"],
+  "properties": {
+    "id": { "type": "string", "description": "只出现在 front matter 里" },
+    "schemaVersion": { "const": 1 },
+    "type": { "enum": ["chapter", "excerpt", "operation", "answer", "note", "group"] },
+    "status": { "enum": ["idle", "running", "done", "failed", "stale"] },
+    "createdBy": { "type": "string", "pattern": "^(user|ai|agent|plugin:[a-z0-9-]+)$" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "parentQA": { "type": "string" },
+    "withinNodeId": { "type": "string" },
+    "version": { "type": "integer", "minimum": 1 },
+    "pinned": { "type": "boolean" },
+    "anchor": { "$ref": "#/$defs/anchor" }
+  },
+  "$defs": {
+    "quote": {
+      "type": "object",
+      "required": ["exact", "prefix", "suffix"],
+      "properties": { "exact": { "type": "string" }, "prefix": { "type": "string" }, "suffix": { "type": "string" } }
+    },
+    "granularity": { "enum": ["block", "sentence", "phrase", "word"] },
+    "anchor": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "sourceId", "headingPath", "blockIndex", "start", "end", "fileHash", "quote", "granularity"],
+          "properties": {
+            "kind": { "const": "markdown" },
+            "sourceId": { "type": "string" },
+            "headingPath": { "type": "array", "items": { "type": "string" } },
+            "blockIndex": { "type": "integer", "minimum": 0 },
+            "start": { "type": "integer", "minimum": 0 },
+            "end": { "type": "integer", "minimum": 0 },
+            "fileHash": { "type": "string" },
+            "quote": { "$ref": "#/$defs/quote" },
+            "granularity": { "$ref": "#/$defs/granularity" },
+            "image": { "type": "object", "required": ["index", "src"], "properties": { "index": { "type": "integer" }, "src": { "type": "string" } } }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "sourceId", "page", "bbox", "quote", "granularity"],
+          "properties": {
+            "kind": { "const": "pdf" },
+            "sourceId": { "type": "string" },
+            "page": { "type": "integer", "minimum": 1 },
+            "bbox": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+            "quote": { "$ref": "#/$defs/quote" },
+            "granularity": { "$ref": "#/$defs/granularity" }
+          }
+        }
+      ]
+    }
+  }
+}

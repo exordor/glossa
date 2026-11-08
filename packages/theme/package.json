@@ -1,0 +1,16 @@
+{
+  "name": "@reader/theme",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "设计系统 token → --rd-* CSS 变量；主题 token 分层与对比度校验。",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.css": "./dist/tokens.css",
+    "./tokens.json": "./tokens.json"
+  },
+  "scripts": {
+    "build": "tsx scripts/build-css.ts",
+    "typecheck": "tsc --noEmit"
+  }
+}
