@@ -4,7 +4,7 @@
  */
 import type { LlmChunk, LlmClient, LlmCredits, LlmErrorInfo, LlmRequest, ModelCapability, ProviderSettings } from "@reader/core";
 import { isLlmError } from "@reader/core";
-import { type LanguageModel, type ProviderMetadata, streamText, wrapLanguageModel } from "ai";
+import { type LanguageModel, Output, type ProviderMetadata, jsonSchema, parsePartialJson, streamText, wrapLanguageModel } from "ai";
 import { toLlmErrorInfo } from "./errors.js";
 import { toModelMessages } from "./messages.js";
 import { type CallPlan, planCall } from "./plan.js";
@@ -72,10 +72,22 @@ export function createLlmClient(parts: LlmClientParts): LlmClient {
           chunkMs: parts.timeouts?.chunkMs ?? 60_000,
         },
         abortSignal: signal,
+        // 结构化输出：response_format 交给 provider（不支持严格 schema 的会退成 JSON 模式），解析我们自己做。
+        ...(req.output
+          ? {
+              output: Output.object({
+                schema: jsonSchema(req.output.schema as never),
+                ...(req.output.name ? { name: req.output.name } : {}),
+                ...(req.output.description ? { description: req.output.description } : {}),
+              }),
+            }
+          : {}),
         providerOptions: parts.providerOptions?.(plan) as ProviderMetadata | undefined,
         // 错误走流里的 error 部件，不要打到控制台。
         onError: () => {},
       });
+      let json = "";
+      let lastObject = "";
       for await (const p of r.stream) {
         switch (p.type) {
           case "text-delta":
@@ -83,11 +95,24 @@ export function createLlmClient(parts: LlmClientParts): LlmClient {
             if (!p.text) break;
             firstChunkMs ??= Date.now() - t0;
             yield { type: p.type === "text-delta" ? "text" : "reasoning", delta: p.text };
+            if (req.output && p.type === "text-delta") {
+              json += p.text;
+              const partial = await partialObject(json);
+              const key = partial === undefined ? "" : JSON.stringify(partial);
+              if (key && key !== lastObject) {
+                lastObject = key;
+                yield { type: "object", value: partial, final: false };
+              }
+            }
             break;
           case "finish-step":
             generationId ??= parts.generationId?.(p.providerMetadata);
             break;
           case "finish": {
+            if (req.output) {
+              const value = completeObject(json);
+              if (value !== undefined) yield { type: "object", value, final: true };
+            }
             const u = p.totalUsage;
             const usage: Extract<LlmChunk, { type: "finish" }>["usage"] = {};
             if (u.inputTokens !== undefined) usage.inputTokens = u.inputTokens;
@@ -134,6 +159,28 @@ export function createLlmClient(parts: LlmClientParts): LlmClient {
       }
     },
   };
+}
+
+/** 去掉模型偶尔包上的 ```json 围栏。 */
+function unfence(text: string): string {
+  return text.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "");
+}
+
+/** 半截 JSON → 当前能补全出的对象（只接受对象）。 */
+async function partialObject(text: string): Promise<unknown> {
+  const { value, state } = await parsePartialJson(unfence(text));
+  if (state !== "successful-parse" && state !== "repaired-parse") return undefined;
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : undefined;
+}
+
+/** 完整 JSON → 对象；不合法时返回 undefined（调用方退回按文字处理）。 */
+function completeObject(text: string): unknown {
+  try {
+    const v: unknown = JSON.parse(unfence(text));
+    return v !== null && typeof v === "object" && !Array.isArray(v) ? v : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** GET 一个 JSON 地址；非 2xx 抛出带 statusCode / responseBody 的错误，交给 toLlmErrorInfo。 */

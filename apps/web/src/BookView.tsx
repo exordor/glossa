@@ -8,9 +8,10 @@ import {
   type SourceDoc,
   actionInstructions,
   actionUserMessage,
+  answerOutput,
   newId,
-  verifyCitations,
 } from "@reader/core";
+import { AnswerAccumulator } from "./answer-stream";
 import { markdownAdapter } from "@reader/source-markdown";
 import { loadChapterAssets } from "./assets";
 import { CARD_SIZE, cardPropsOf, nodeIdOf, shapeIdOf, syncShapes } from "./canvas-sync";
@@ -277,18 +278,19 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       const runId = newId();
       runsRef.current.set(answerId, runId);
       requestsRef.current.set(answerId, { actionId: action.id, message, sources, depth });
-      let acc = "";
+      const acc = new AnswerAccumulator(depth);
       let raf = 0;
       const flush = () => {
         raf = 0;
-        void reader.updateNode(answerId, { text: acc }).then(refreshCard);
+        void reader.updateNode(answerId, { text: acc.display() }).then(refreshCard);
       };
-      const end = async (patch: { text: string; status: "done" | "failed" }) => {
+      const end = async (status: "done" | "failed", error?: string) => {
         if (raf) cancelAnimationFrame(raf);
         raf = 0;
-        // 引用校验：回答里「」括起来的原话，逐条到原文里找。
-        const citations = verifyCitations(patch.text, sources);
-        refreshCard(await reader.updateNode(answerId, { ...patch, body: patch.text, depth, citations }));
+        // 引用校验：citations 字段和正文里「」括起来的原话，逐条到原文里找。
+        const { text: answer, citations } = acc.finish(sources);
+        const text = error ? (answer ? `${answer}\n\n（中断：${error}）` : error) : answer;
+        refreshCard(await reader.updateNode(answerId, { text, status, body: text, depth, citations }));
         save();
       };
       try {
@@ -299,15 +301,14 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
           actionId: action.id,
           instructions: actionInstructions(action, depth),
           messages: [{ role: "user", content: [{ type: "text", text: message }] }],
+          output: answerOutput(depth),
         })) {
-          if (c.type === "text") {
-            acc += c.delta;
+          if (acc.push(c)) {
             if (!raf) raf = requestAnimationFrame(flush);
           } else if (c.type === "finish") {
-            await end({ text: acc, status: "done" });
+            await end("done");
           } else if (c.type === "error") {
-            const msg = llmErrorText(c.error);
-            await end({ text: acc ? `${acc}\n\n（中断：${msg}）` : msg, status: "failed" });
+            await end("failed", llmErrorText(c.error));
           }
         }
       } finally {
@@ -367,11 +368,11 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       setInline({ runId, actionId: action.id, actionName: action.name, quote: anchor.quote.exact, text: "", status: "running", depth, citations: [] });
       const mine = (c: InlineCardState | null) => c?.runId === runId;
       void (async () => {
-        let acc = "";
+        const acc = new AnswerAccumulator(depth);
         let raf = 0;
         const flush = () => {
           raf = 0;
-          setInline((c) => (mine(c) ? { ...c!, text: acc } : c));
+          setInline((c) => (mine(c) ? { ...c!, text: acc.display() } : c));
         };
         for await (const c of reader.llm.run({
           alias: action.model,
@@ -379,21 +380,22 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
           actionId: action.id,
           instructions: actionInstructions(action, depth),
           messages: [{ role: "user", content: [{ type: "text", text: message }] }],
+          output: answerOutput(depth),
         })) {
-          if (c.type === "text") {
-            acc += c.delta;
+          if (acc.push(c)) {
             if (!raf) raf = requestAnimationFrame(flush);
           } else if (c.type === "finish" || c.type === "error") {
             if (raf) cancelAnimationFrame(raf);
             const done = c.type === "finish";
             if (inlineRun.current === runId) inlineRun.current = null;
+            const result = acc.finish(sources);
             setInline((cur) =>
               mine(cur)
                 ? {
                     ...cur!,
-                    text: acc,
+                    text: result.text,
                     status: done ? "done" : "failed",
-                    citations: verifyCitations(acc, sources),
+                    citations: result.citations,
                     ...(done ? {} : { error: llmErrorText(c.error) }),
                   }
                 : cur,

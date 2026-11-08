@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import Ajv2020 from "ajv/dist/2020.js";
-import { actionInstructions, citationsOf, isQuoteInSources, parseActionTemplate, parseAnswer, verifyCitations } from "../src/index.js";
+import {
+  actionInstructions,
+  answerFromObject,
+  answerSchema,
+  answerToMarkdown,
+  citationsOf,
+  isQuoteInSources,
+  parseActionTemplate,
+  parseAnswer,
+  verifyCitations,
+} from "../src/index.js";
 
 const SOURCE = `## 3.2 Attention
 
@@ -70,17 +80,65 @@ describe("引用校验", () => {
   });
 });
 
-describe("actionInstructions", () => {
+describe("actionInstructions / answerSchema", () => {
   const t = parseActionTemplate(readFileSync(new URL("../../../templates/actions/explain.md", import.meta.url), "utf8"), "explain.md");
 
-  it("模板提示词后面接统一的输出格式，深度可以覆盖", () => {
+  it("模板提示词后面接 JSON 输出格式和 schema，深度可以覆盖", () => {
     const own = actionInstructions(t);
     expect(own.startsWith(t.prompt)).toBe(true);
-    expect(own).toContain("「- 」开头的要点");
+    expect(own).toContain("只输出一个 JSON 对象");
+    expect(own).toContain('"points"');
     const brief = actionInstructions(t, "brief");
-    expect(brief).toContain("只写一句话结论");
-    expect(brief).not.toContain("「- 」开头的要点");
-    expect(actionInstructions(t, "steps")).toContain("「1. 」");
+    expect(brief).toContain("只填 summary");
+    expect(brief).not.toContain('"points"');
+    expect(actionInstructions(t, "steps")).toContain('"steps"');
+  });
+
+  it("schema 兼容严格模式：字段全部 required、不许多余字段，字段顺序 summary 在前", () => {
+    for (const d of ["brief", "points", "steps"] as const) {
+      const s = answerSchema(d) as { properties: Record<string, unknown>; required: string[]; additionalProperties: boolean };
+      expect(s.additionalProperties).toBe(false);
+      expect(s.required).toEqual(Object.keys(s.properties));
+      expect(Object.keys(s.properties)[0]).toBe("summary");
+      expect(JSON.stringify(s)).not.toMatch(/maxLength|maxItems/);
+    }
+    expect(Object.keys((answerSchema("points") as { properties: object }).properties)).toEqual(["summary", "points", "citations"]);
+    expect(Object.keys((answerSchema("brief") as { properties: object }).properties)).toEqual(["summary", "citations"]);
+  });
+
+  it("各深度的 schema 产出的对象都符合仓库里的 answer.schema.json", () => {
+    const schema = JSON.parse(readFileSync(new URL("../../../schemas/answer.schema.json", import.meta.url), "utf8"));
+    const validate = new Ajv2020({ strict: false }).compile(schema);
+    const a = answerFromObject({ summary: "s", steps: ["a"], citations: [{ quote: "mapping a query" }] }, "steps", [SOURCE]);
+    expect(validate(a)).toBe(true);
+  });
+});
+
+describe("answerFromObject / answerToMarkdown", () => {
+  it("对象 → 结构，引用来自 citations 字段和正文「」，去重后校验", () => {
+    const a = answerFromObject(
+      { summary: "结论：注意力是映射", points: ["- 输入是「mapping a query」", "输出是加权和"], citations: [{ quote: "mapping a query" }, { quote: "编造的句子" }] },
+      "points",
+      [SOURCE],
+    );
+    expect(a).toEqual({
+      schemaVersion: 1,
+      depth: "points",
+      summary: "注意力是映射",
+      points: ["输入是「mapping a query」", "输出是加权和"],
+      citations: [
+        { quote: "mapping a query", verified: true },
+        { quote: "编造的句子", verified: false },
+      ],
+    });
+    expect(answerToMarkdown(a)).toBe("注意力是映射\n\n- 输入是「mapping a query」\n- 输出是加权和");
+  });
+
+  it("半截对象、类型不对都容忍；步骤去掉模型自己写的编号", () => {
+    expect(answerFromObject({ summary: "注意" }, "steps")).toMatchObject({ summary: "注意", citations: [] });
+    expect(answerFromObject({ summary: 3, points: "x" }, "points")).toMatchObject({ summary: "" });
+    const a = answerFromObject({ summary: "s", steps: ["1. 主干", "2. 修饰"] }, "steps");
+    expect(answerToMarkdown(a)).toBe("s\n\n1. 主干\n2. 修饰");
   });
 });
 

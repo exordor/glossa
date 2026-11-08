@@ -27,8 +27,8 @@ export interface LlmRequest {
   runId?: string;
   nodeId?: string;
   actionId?: string;
-  /** 第 5 步起使用：结构化输出。 */
-  output?: { type: "json"; schema: object };
+  /** 结构化输出：JSON schema。模型不支持严格模式时，调用方应同时在提示词里写明字段。 */
+  output?: { type: "json"; schema: object; name?: string; description?: string };
 }
 
 export interface LlmUsage {
@@ -50,6 +50,11 @@ export type LlmChunk =
     }
   | { type: "reasoning"; delta: string }
   | { type: "text"; delta: string }
+  /**
+   * 结构化输出（请求带 output 时）：随文本增量不断给出当前能解析出的对象。
+   * final 为 true 的那一块是完整、合法的 JSON；模型没给出合法 JSON 时不会有 final 块，调用方退回按文字处理。
+   */
+  | { type: "object"; value: unknown; final: boolean }
   | {
       type: "finish";
       finishReason: string;
