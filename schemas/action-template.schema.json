@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://glossa.dev/schemas/action-template.schema.json",
+  "title": "动作模板 front matter（templates/actions/<id>.md）",
+  "type": "object",
+  "required": ["schemaVersion", "id", "name", "model", "input", "depth", "usesLLM"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "name": { "type": "string", "minLength": 1 },
+    "model": { "enum": ["fast", "smart", "vision", "image"] },
+    "input": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "enum": ["word", "sentence", "passage", "chapter", "image"] }
+    },
+    "depth": { "enum": ["brief", "points", "steps"] },
+    "usesLLM": { "type": "boolean" },
+    "output": { "type": "string", "description": "结构化输出的 JSON Schema 路径（第 5c 步启用）" }
+  },
+  "additionalProperties": true
+}
