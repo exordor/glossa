@@ -16,3 +16,4 @@ export * from "./book.js";
 export * from "./llm.js";
 export * from "./settings.js";
 export * from "./llm-service.js";
+export * from "./action-template.js";

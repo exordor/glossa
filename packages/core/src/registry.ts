@@ -14,8 +14,10 @@ export interface ActionTemplate {
   depth: "brief" | "points" | "steps";
   /** 是否调用 AI（「批注」不调）。 */
   usesLLM: boolean;
-  /** 模板正文。 */
+  /** 模板正文（作为 instructions 发给模型）。 */
   prompt: string;
+  /** 结构化输出的 JSON Schema 路径（第 5c 步启用）。 */
+  output?: string;
 }
 
 export type ModelAlias = "fast" | "smart" | "vision" | "image";

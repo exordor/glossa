@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type Editor, Tldraw } from "tldraw";
-import { type ActionTemplate, type ReaderNode, type SourceDoc, newId } from "@reader/core";
+import { type ActionTemplate, type Anchor, type ReaderNode, type SourceDoc, actionUserMessage, newId } from "@reader/core";
 import { markdownAdapter } from "@reader/source-markdown";
 import { loadChapterAssets } from "./assets";
 import { CARD_SIZE, cardPropsOf, nodeIdOf, shapeIdOf, syncShapes } from "./canvas-sync";
@@ -16,17 +16,10 @@ import { SourceReader, type TextRange } from "./SourceReader";
 const STACK_GAP = 40;
 const SHAPE_UTILS = [CardShapeUtil, EdgeShapeUtil];
 
-/** 第 4 步的临时提示词（模板、结构化输出、上下文组装是第 5、6 步）。 */
-const STREAM_PROMPTS: Record<string, string> = {
-  explain: "用中文解释下面这段文字，先给一句话结论，再展开。",
-  ask: "下面是读者从书里选中的一段文字，把它当作读者的问题，用中文回答：先给一句话结论，再展开。",
-};
-
-/** 回答卡的生成请求（重试用）。 */
+/** 回答卡的生成请求（重试用）：动作 + 已组装好的用户消息。 */
 interface AnswerRequest {
   actionId: string;
-  text: string;
-  where: string[];
+  message: string;
 }
 
 const INTERRUPTED = "已中断";
@@ -252,10 +245,10 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
 
   /** 流式写回答卡：文字增量每帧最多更新一次卡片，结束时存一次盘。 */
   const streamAnswer = useCallback(
-    async (answerId: string, action: ActionTemplate, text: string, where: string[]) => {
+    async (answerId: string, action: ActionTemplate, message: string) => {
       const runId = newId();
       runsRef.current.set(answerId, runId);
-      requestsRef.current.set(answerId, { actionId: action.id, text, where });
+      requestsRef.current.set(answerId, { actionId: action.id, message });
       let acc = "";
       let raf = 0;
       const flush = () => {
@@ -269,14 +262,13 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
         save();
       };
       try {
-        const source = where.length ? `\n\n（出自：${where.join(" › ")}）` : "";
         for await (const c of reader.llm.run({
           alias: action.model,
           runId,
           nodeId: answerId,
           actionId: action.id,
-          instructions: STREAM_PROMPTS[action.id] ?? STREAM_PROMPTS.explain,
-          messages: [{ role: "user", content: [{ type: "text", text: text + source }] }],
+          instructions: action.prompt,
+          messages: [{ role: "user", content: [{ type: "text", text: message }] }],
         })) {
           if (c.type === "text") {
             acc += c.delta;
@@ -295,6 +287,18 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
     [reader, refreshCard, save],
   );
 
+  /** 由锚点重新组装用户消息（重开书后重试用）：读来源 → 解析 → 三层提取。 */
+  const messageFor = useCallback(
+    async (action: ActionTemplate, anchor: Anchor): Promise<string | null> => {
+      const src = await reader.readSource(anchor.sourceId);
+      if (!src) return anchor.quote.exact;
+      const doc = await markdownAdapter.parse(anchor.sourceId, src.text);
+      const part = markdownAdapter.extract(doc, anchor);
+      return part.kind === "text" ? actionUserMessage(action, part) : anchor.quote.exact;
+    },
+    [reader],
+  );
+
   // 失败回答卡上的「重试」：用同一请求重新生成。
   useEffect(() => {
     const onRetry = (e: Event) => {
@@ -308,24 +312,27 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
           const from = edge && (await reader.listNodes()).find((n) => n.id === edge.from);
           const a = from?.meta.anchor;
           if (!a) return;
-          req = { actionId: "explain", text: a.quote.exact, where: a.kind === "markdown" ? a.headingPath : [] };
+          const explain = reader.registry.get("action", "explain");
+          const message = explain && (await messageFor(explain, a));
+          if (!message) return;
+          req = { actionId: "explain", message };
         }
         const action = reader.registry.get("action", req.actionId);
         if (!action) return;
         refreshCard(await reader.updateNode(answerId, { status: "running", text: "" }));
-        void streamAnswer(answerId, action, req.text, req.where);
+        void streamAnswer(answerId, action, req.message);
       })();
     };
     window.addEventListener("glossa:retry", onRetry);
     return () => window.removeEventListener("glossa:retry", onRetry);
-  }, [reader, refreshCard, streamAnswer]);
+  }, [reader, refreshCard, streamAnswer, messageFor]);
 
   const runAction = useCallback(
     async (actionId: string) => {
       if (!chapter || !selection || !editor) return;
       const action = reader.registry.get("action", actionId);
-      // 第 4 步：「解释」「提问」流式生成回答卡；「词义」「拆句」仍是占位（第 5 步）。
-      const streams = Boolean(action?.usesLLM && STREAM_PROMPTS[actionId]);
+      // 调用 AI 的动作都按模板流式生成回答卡（5b 会把「词义」「拆句」改成就地弹卡）。
+      const streams = Boolean(action?.usesLLM && action.prompt);
       if (streams) {
         const problem = await aiReadiness((await reader.llm.getSettings()).llm.activeProvider);
         if (problem) {
@@ -340,7 +347,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       const column = nodes.filter((n) => n.meta.type !== "group" && n.x < x + (chapterNode?.width ?? 320) && n.x + n.width > x);
       const y = Math.max((chapterNode?.y ?? 0) + (chapterNode?.height ?? 120), ...column.map((n) => n.y + n.height)) + STACK_GAP;
       const size = action?.usesLLM ? CARD_SIZE.excerpt! : CARD_SIZE.note!;
-      // 「批注」生成批注卡，其余 AI 动作先生成摘录卡；「解释」「提问」再接一张回答卡。
+      // 「批注」生成批注卡；AI 动作生成摘录卡 + 回答卡。
       const node = await reader.createNode(
         action?.usesLLM
           ? { type: "excerpt", x, y, width: size.w, height: size.h, anchor, text: anchor.quote.exact }
@@ -369,8 +376,9 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       window.getSelection()?.removeAllRanges();
       save();
       if (answerId && action) {
-        const where = anchor.kind === "markdown" ? anchor.headingPath : [];
-        void streamAnswer(answerId, action, anchor.quote.exact, where);
+        const part = markdownAdapter.extract(chapter.doc, anchor);
+        const message = part.kind === "text" ? actionUserMessage(action, part) : anchor.quote.exact;
+        void streamAnswer(answerId, action, message);
       }
     },
     [chapter, selection, editor, reader, save, book, streamAnswer],

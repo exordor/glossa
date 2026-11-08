@@ -1,16 +1,23 @@
-import type { ActionTemplate, Registry } from "@reader/core";
+import { parseActionTemplate, type ActionTemplate, type Registry } from "@reader/core";
 
 /**
- * v0.1 内置动作。最终由 templates/actions/*.md 生成（文件即插件），这里先写死同样的字段。
+ * 内置动作 = 仓库 templates/actions/*.md（文件即插件），打包时以文本形式内联。
+ * 和第三方插件一样走 registry.register("action")；菜单顺序由 ORDER 决定，没列出的排在后面。
  */
-const BUILTIN_ACTIONS: ActionTemplate[] = [
-  { id: "define", name: "词义", model: "fast", input: ["word"], depth: "brief", usesLLM: true, prompt: "" },
-  { id: "ask", name: "提问", model: "smart", input: ["word", "sentence", "passage"], depth: "points", usesLLM: true, prompt: "" },
-  { id: "explain", name: "解释", model: "smart", input: ["sentence", "passage"], depth: "points", usesLLM: true, prompt: "" },
-  { id: "parse-sentence", name: "拆句", model: "fast", input: ["sentence"], depth: "steps", usesLLM: true, prompt: "" },
-  { id: "note", name: "批注", model: "fast", input: ["word", "sentence", "passage"], depth: "brief", usesLLM: false, prompt: "" },
-];
+const FILES = import.meta.glob("../../../templates/actions/*.md", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+const ORDER = ["define", "parse-sentence", "explain", "ask", "note"];
+
+export function builtinActionTemplates(): ActionTemplate[] {
+  const list = Object.entries(FILES).map(([path, text]) => parseActionTemplate(text, path.replace(/^.*\/templates\//, "templates/")));
+  const rank = (id: string) => (ORDER.includes(id) ? ORDER.indexOf(id) : ORDER.length);
+  return list.sort((a, b) => rank(a.id) - rank(b.id) || a.id.localeCompare(b.id));
+}
 
 export function registerBuiltinActions(registry: Registry) {
-  return BUILTIN_ACTIONS.map((a) => registry.register("action", a));
+  return builtinActionTemplates().map((a) => registry.register("action", a));
 }
