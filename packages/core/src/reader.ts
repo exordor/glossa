@@ -13,6 +13,7 @@ import type { Book } from "./types.js";
 import type { ReaderEdge, ReaderMeta, ReaderNode } from "./types.js";
 import { SCHEMA_VERSION } from "./types.js";
 import type { Vault } from "./vault.js";
+import { Journal } from "./journal.js";
 
 export const API_VERSION = "0.2.0";
 
@@ -47,6 +48,8 @@ export class Reader {
   readonly events = new EventBus();
   /** LLM 网关：run / cancel / test / listModels / 设置读写。provider 要另外注册到 registry。 */
   readonly llm: LlmService;
+  /** 运行记录（.canvas/runs/*.jsonl）与使用统计（.canvas/stats.jsonl），追加写。 */
+  readonly journal: Journal;
   private canvas: LoadedCanvas | null = null;
   private bodies: Record<string, string> = {};
 
@@ -55,6 +58,7 @@ export class Reader {
     opts: ReaderOptions = {},
   ) {
     this.llm = createAppLlm({ registry: this.registry, events: this.events, settings: opts.settings }).llm;
+    this.journal = new Journal(vault);
   }
 
   async open(): Promise<{ nodes: number; edges: number; repaired: string[] }> {
