@@ -3,6 +3,7 @@
  * context 实线 + 两端空心端点；derived 实线 + 开口箭头；reference 虚线，可带标签。颜色一律 edge 灰。
  * 连线不参与命中测试，位置每次从两端卡片现算，所以卡片拖动时跟着走。
  */
+import { focusAtom } from "./focus";
 import { Rectangle2d, SVGContainer, ShapeUtil, T, type TLShape, type TLShapeId } from "tldraw";
 
 export const EDGE_TYPE = "rd-edge";
@@ -74,6 +75,8 @@ export class EdgeShapeUtil extends ShapeUtil<EdgeShape> {
     const e = this.endpoints(shape);
     if (!e) return null;
     const { x1, y1, x2, y2, horizontal, sign } = e;
+    const focus = focusAtom.get();
+    const dim = focus !== null && !(focus.has(shape.props.from) && focus.has(shape.props.to));
     const k = Math.max(40, (horizontal ? Math.abs(x2 - x1) : Math.abs(y2 - y1)) / 2);
     const c1 = horizontal ? [x1 + sign * k, y1] : [x1, y1 + sign * k];
     const c2 = horizontal ? [x2 - sign * k, y2] : [x2, y2 - sign * k];
@@ -87,7 +90,7 @@ export class EdgeShapeUtil extends ShapeUtil<EdgeShape> {
     const my = (y1 + y2) / 2;
     return (
       <SVGContainer>
-        <g className="rd-edge" data-rc="edge" data-role={role}>
+        <g className="rd-edge" data-rc="edge" data-role={role} data-dim={dim || undefined}>
           <path className="rd-edge-line" d={d} />
           {role === "derived" && <path className="rd-edge-line" d={`${arrow(1)} ${arrow(-1)}`} />}
           {role === "context" && (

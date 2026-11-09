@@ -4,6 +4,7 @@
  */
 import { HTMLContainer, Rectangle2d, ShapeUtil, T, type TLShape } from "tldraw";
 import { Icon, type IconName } from "./icons";
+import { focusAtom } from "./focus";
 import { MarkdownCompact } from "./mini-markdown";
 
 export const CARD_TYPE = "rd-card";
@@ -131,6 +132,9 @@ export class CardShapeUtil extends ShapeUtil<CardShape> {
     const selected = this.editor.getSelectedShapeIds().includes(shape.id);
     const badge = STATE_BADGE[p.state];
     const quote = p.quoteHit || p.quotePre || p.quotePost;
+    // 聚焦模式：不在选中卡上下游里的卡变淡。
+    const focus = focusAtom.get();
+    const dim = focus !== null && !focus.has(p.nodeId);
     const label = [p.title || p.body || p.quoteHit, p.crumb].filter(Boolean).join("，");
     return (
       <HTMLContainer>
@@ -141,6 +145,7 @@ export class CardShapeUtil extends ShapeUtil<CardShape> {
           data-group={p.group}
           data-state={p.state}
           data-zoom={far ? "far" : undefined}
+          data-dim={dim || undefined}
           aria-selected={selected}
           aria-busy={p.state === "running" || undefined}
           aria-label={label}
