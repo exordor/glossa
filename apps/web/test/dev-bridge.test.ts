@@ -279,6 +279,27 @@ describe("dev bridge：密钥接口", () => {
   });
 });
 
+describe("dev bridge：生词本接口", () => {
+  it("POST 追加一行到 ~/.reader/vocab.jsonl（服务端规整 word、补时间），GET 列出", async () => {
+    const b = await bridge();
+    expect(await (await b.call("/__glossa/vocab")).json()).toEqual({ records: [] });
+    const body = { display: "Saturating,", bookId: "b1", sourceId: "s1", sentence: "pushes softmax into saturating regions.", word: "伪造", at: "1999", extra: 1 };
+    const res = await b.call("/__glossa/vocab", { method: "POST", body: JSON.stringify(body) });
+    expect(res.status).toBe(200);
+    const rec = await res.json();
+    expect(rec).toMatchObject({ schemaVersion: 1, word: "saturating", display: "Saturating,", extra: 1 });
+    expect(rec.at).not.toBe("1999");
+    await b.call("/__glossa/vocab", { method: "POST", body: JSON.stringify(body) });
+    const text = await readFile(join(home, "vocab.jsonl"), "utf8");
+    expect(text.trim().split("\n")).toHaveLength(2);
+    expect(text.indexOf('"schemaVersion"')).toBeLessThan(text.indexOf('"word"'));
+    expect((await (await b.call("/__glossa/vocab")).json()).records).toHaveLength(2);
+    expect((await b.call("/__glossa/vocab", { method: "POST", body: "[]" })).status).toBe(400);
+    expect((await b.call("/__glossa/vocab", { method: "POST", body: JSON.stringify({ display: "x" }) })).status).toBe(400);
+    await b.done();
+  });
+});
+
 describe("dev bridge：设置接口", () => {
   it("GET 返回默认设置；PUT 写 ~/.reader/settings.json（固定键序、保留未知字段、去掉 apiKey）；openai-compatible 的上游从这里读", async () => {
     const b = await bridge();

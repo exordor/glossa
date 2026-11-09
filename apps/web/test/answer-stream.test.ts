@@ -18,6 +18,7 @@ describe("AnswerAccumulator", () => {
         { quote: "softmax never saturates", verified: false },
         { quote: "keeps the softmax from saturating", verified: true },
       ],
+      summary: "缩放防止饱和",
     });
   });
 

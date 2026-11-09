@@ -25,6 +25,8 @@ export interface InlineCardState {
   citations: Citation[];
   /** 本次发给 AI 的上下文。 */
   context?: AssembledContext;
+  /** 词义查完进了生词本：这是第几次查这个词。 */
+  vocabCount?: number;
 }
 
 export function InlineCard({
@@ -73,6 +75,11 @@ export function InlineCard({
         <p className="inline-card-cite" data-warn={cite.warn}>
           <Icon name={"node-excerpt"} />
           {cite.text}
+        </p>
+      )}
+      {card.vocabCount !== undefined && (
+        <p className="inline-card-vocab" data-rc="vocab-status">
+          已加入生词本 · 第 {card.vocabCount} 次查
         </p>
       )}
       <footer className="inline-card-foot">
