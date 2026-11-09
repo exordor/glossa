@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/exordor/glossa/schemas/vocab.schema.json",
+  "title": "生词本（~/.reader/vocab.jsonl 的一行：一次查词，追加写）",
+  "type": "object",
+  "required": ["schemaVersion", "word", "display", "at", "bookId", "sourceId", "sentence"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "word": { "type": "string", "minLength": 1, "description": "规整后的词：NFKC、小写、去首尾标点。生词表按它折叠。" },
+    "display": { "type": "string", "description": "原文里的写法。" },
+    "at": { "type": "string", "format": "date-time" },
+    "bookId": { "type": "string" },
+    "bookTitle": { "type": "string" },
+    "sourceId": { "type": "string" },
+    "sentence": { "type": "string", "description": "查词时所在的句子。" },
+    "anchor": { "type": "object", "description": "原句锚点（同 node-meta 的 anchor）。" },
+    "sense": { "type": "string", "description": "这次查到的释义（回答的结论）。" }
+  },
+  "additionalProperties": true
+}

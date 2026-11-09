@@ -5,6 +5,7 @@
  *   ALL  /__llm/<providerId>/<rest>          转发到该 provider 的上游，服务端注入 Authorization: Bearer <key>
  *   GET|PUT|DELETE /__glossa/llm/key/<id>    密钥状态 / 保存 / 清除（GET 只回状态和 4 位提示，不回密钥）
  *   GET|PUT /__glossa/settings               ~/.reader/settings.json（经 @reader/core/node 的 NodeSettingsStore）
+ *   GET|POST /__glossa/vocab                 ~/.reader/vocab.jsonl 生词本：GET 列出查词记录，POST 追加一条
  *
  * 防止别的本机网页花你的额度：
  *   - 必须带请求头 x-glossa-bridge: 1（非简单请求头，跨源要先预检，bridge 不应答预检）；
@@ -21,8 +22,8 @@ import { type IncomingMessage, type ServerResponse, request as httpRequest } fro
 import { request as httpsRequest } from "node:https";
 import { join } from "node:path";
 import { stableStringify } from "@reader/core";
-import { NodeSettingsStore, readerHome } from "@reader/core/node";
-import { parseSettings, serializeSettings } from "@reader/core";
+import { NodeSettingsStore, NodeVocabStore, readerHome } from "@reader/core/node";
+import { makeVocabRecord, parseSettings, serializeSettings } from "@reader/core";
 import { BRIDGE_HEADER, BRIDGE_PREFIX, DEEPSEEK_ORIGIN, GATEWAY_ORIGIN, OLLAMA_BASE_URL, PROVIDER_IDS } from "@reader/llm";
 import { loadEnv } from "vite";
 
@@ -266,6 +267,7 @@ export function createBridgeMiddleware(opts: BridgeOptions): BridgeMiddleware {
   const home = opts.home ?? readerHome(env);
   const secrets = opts.secrets ?? (process.platform === "darwin" ? macKeychain() : fileCredentials(home));
   const settingsStore = new NodeSettingsStore(home);
+  const vocabStore = new NodeVocabStore(home);
 
   /** 查密钥：环境变量 → .env.local → 钥匙串 / 文件。 */
   async function lookupKey(providerId: string, route: ProviderRoute): Promise<{ key: string; source: Exclude<KeySource, null>; envFile: boolean } | null> {
@@ -364,6 +366,27 @@ export function createBridgeMiddleware(opts: BridgeOptions): BridgeMiddleware {
     return fail(res, 405, "method_not_allowed", "不支持的方法");
   }
 
+  async function handleVocab(req: IncomingMessage, res: ServerResponse) {
+    if (req.method === "GET") return sendJson(res, 200, { records: await vocabStore.list() });
+    if (req.method === "POST") {
+      let raw: Record<string, unknown>;
+      try {
+        raw = JSON.parse(await readBody(req)) as Record<string, unknown>;
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("not object");
+      } catch {
+        return fail(res, 400, "bad_vocab", "不是合法的 JSON");
+      }
+      const str = (k: string) => (typeof raw[k] === "string" ? (raw[k] as string) : "");
+      if (!str("display") || !str("bookId") || !str("sourceId")) return fail(res, 400, "bad_vocab", "缺少 display / bookId / sourceId");
+      // 服务端重新规整 word、补时间，不信任浏览器传来的这两项。
+      const { word: _w, at: _a, schemaVersion: _v, ...rest } = raw;
+      const rec = makeVocabRecord({ ...rest, display: str("display"), bookId: str("bookId"), sourceId: str("sourceId"), sentence: str("sentence") });
+      await vocabStore.append(rec);
+      return sendJson(res, 200, rec);
+    }
+    return fail(res, 405, "method_not_allowed", "不支持的方法");
+  }
+
   async function handleProxy(req: IncomingMessage, res: ServerResponse, providerId: string, rest: string, search: string) {
     const route = PROVIDER_ROUTES[providerId];
     if (!route || !pathAllowed(route, rest)) return fail(res, 404, "not_allowed", "bridge 不转发这个地址");
@@ -430,6 +453,7 @@ export function createBridgeMiddleware(opts: BridgeOptions): BridgeMiddleware {
       const key = /^\/__glossa\/llm\/key\/([a-z0-9-]+)$/.exec(path);
       if (key) return handleKey(req, res, key[1]!);
       if (path === "/__glossa/settings") return handleSettings(req, res);
+      if (path === "/__glossa/vocab") return handleVocab(req, res);
       return fail(res, 404, "not_found", "没有这个接口");
     };
     run().catch((e: unknown) => {

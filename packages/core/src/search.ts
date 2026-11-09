@@ -5,14 +5,16 @@
  */
 
 export interface SearchEntry {
-  kind: "source" | "node";
-  /** source：sourceId；node：nodeId。 */
+  kind: "source" | "node" | "vocab";
+  /** source：sourceId；node：nodeId；vocab：规整后的词。 */
   id: string;
   /** 结果列表上的出处，如「第 1 章 › 1.2 自注意力」或「回答」。 */
   title: string;
   text: string;
-  /** source 条目在原文里的起始偏移（跳回原文用）。 */
+  /** source 条目在原文里的起始偏移；vocab 条目在本书里第一次出现的偏移（跳回原文用）。 */
   start?: number;
+  /** vocab 条目第一次出现在哪一章；本书里没出现就没有。 */
+  sourceId?: string;
 }
 
 export interface SearchHit {
@@ -61,7 +63,7 @@ export function search(query: string, entries: SearchEntry[], limit = 30): Searc
       snippet,
       mark: [markStart, markStart + first.length],
       offset,
-      score: count + (entry.kind === "node" ? 0.5 : 0) + (offset < 40 ? 0.25 : 0),
+      score: count + (entry.kind !== "source" ? 0.5 : 0) + (offset < 40 ? 0.25 : 0),
     });
   }
   return hits.sort((a, b) => b.score - a.score).slice(0, limit);

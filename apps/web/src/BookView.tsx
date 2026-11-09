@@ -15,7 +15,10 @@ import {
   type SearchHit,
   type AnnotationMark,
   type GutterMark,
+  type VocabWord,
   annotationsAt,
+  findVocab,
+  isVocabCandidate,
   gutterMarks,
   markSegments,
   paragraphEntries,
@@ -131,6 +134,12 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
   const [newCard, setNewCard] = useState<{ nodeId: string; dir: Direction } | null>(null);
   /** 画布内容的版本号：变了就重算阅读器里的批注标记。 */
   const [canvasRev, setCanvasRev] = useState(0);
+  /** 生词本里的词（跨书）：阅读器里点状下划线。 */
+  const [vocabWords, setVocabWords] = useState<VocabWord[]>([]);
+  useEffect(() => {
+    void reader.vocab.words().then(setVocabWords);
+  }, [reader]);
+
   const newCardRef = useRef<string | null>(null);
   /** Cmd+K 搜索：打开时现收集条目（原文段落 + 卡片）。 */
   const [palette, setPalette] = useState<SearchEntry[] | null>(null);
@@ -415,9 +424,24 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
   /** 打开搜索：每章原文切段落 + 画布上所有卡片的文字。 */
   const openPalette = useCallback(async () => {
     const entries: SearchEntry[] = [];
+    const texts: Array<{ id: string; text: string }> = [];
     for (const [i, src] of book.sources.entries()) {
       const s = await reader.readSource(src.id);
       if (s) entries.push(...paragraphEntries(src.id, src.title ?? `第 ${i + 1} 章`, s.text));
+      if (s) texts.push({ id: src.id, text: s.text });
+    }
+    // 生词：词和释义可搜；跳到本书里第一次出现的地方。
+    for (const w of await reader.vocab.words()) {
+      const entry: SearchEntry = { kind: "vocab", id: w.word, title: `生词 · 查过 ${w.count} 次`, text: [w.display, w.sense].filter(Boolean).join("\n") };
+      for (const t of texts) {
+        const hit = findVocab(t.text, [w])[0];
+        if (hit) {
+          entry.sourceId = t.id;
+          entry.start = hit.start;
+          break;
+        }
+      }
+      entries.push(entry);
     }
     const TYPE: Record<string, string> = { chapter: "章节", excerpt: "摘录", operation: "提问", answer: "回答", note: "批注" };
     for (const n of await reader.listNodes()) {
@@ -447,6 +471,12 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
         const start = (h.entry.start ?? 0) + h.offset;
         setOpenSourceId(h.entry.id);
         setLocate({ range: { sourceId: h.entry.id, start, end: start + Math.max(1, h.mark[1] - h.mark[0]) }, seq: Date.now() });
+      } else if (h.entry.kind === "vocab") {
+        const { sourceId, start } = h.entry;
+        if (sourceId && start !== undefined) {
+          setOpenSourceId(sourceId);
+          setLocate({ range: { sourceId, start, end: start + h.entry.id.length }, seq: Date.now() });
+        }
       } else if (editor) {
         const b = editor.getShapePageBounds(shapeIdOf(h.entry.id));
         if (b) editor.centerOnPoint({ x: b.x + b.w / 2, y: b.y + b.h / 2 }, cameraAnim());
@@ -513,7 +543,8 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
     // canvasRev：nodesRef 是 ref，靠它触发重算。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chapter, editor, canvasRev]);
-  const segments = useMemo(() => markSegments(marks), [marks]);
+  const vocabHits = useMemo(() => (chapter ? findVocab(chapter.doc.text, vocabWords) : []), [chapter, vocabWords]);
+  const segments = useMemo(() => markSegments(marks, vocabHits), [marks, vocabHits]);
   const gutters = useMemo(() => gutterMarks(marks), [marks]);
 
   /** 叠层浮层：悬停命中两层以上时出现；点边沟角标时列出本段全部批注（带键盘焦点）。 */
@@ -774,6 +805,29 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
   );
 
   /** 就地卡：流式写进阅读器顶部的小卡，不建画布节点。同一时间只有一张，新的会取消旧的。 */
+  /** 生词本：查过的词。词义查完就记一笔；同一处选区换深度重跑不重复记。 */
+  const vocabLogged = useRef<string | null>(null);
+  const addVocab = useCallback(
+    async (runId: string, anchor: Anchor, summary: string) => {
+      const display = anchor.quote.exact;
+      if (!isVocabCandidate(display) || anchor.kind !== "markdown") return;
+      const key = `${anchor.sourceId}:${anchor.start}:${anchor.end}`;
+      let word: VocabWord | null;
+      if (vocabLogged.current === key) word = await reader.vocab.get(display);
+      else {
+        const doc = chapter?.doc.sourceId === anchor.sourceId ? chapter.doc : null;
+        const part = doc ? markdownAdapter.extract(doc, anchor) : null;
+        const sentence = (part?.kind === "text" && part.sentence) || display;
+        word = await reader.vocab.add({ display, bookId: book.id, bookTitle: book.title, sourceId: anchor.sourceId, sentence, anchor, ...(summary ? { sense: summary } : {}) });
+        vocabLogged.current = key;
+        stat({ event: "vocab", count: word.count });
+        setVocabWords(await reader.vocab.words());
+      }
+      if (word) setInline((c) => (c?.runId === runId ? { ...c, vocabCount: word!.count } : c));
+    },
+    [reader, chapter, book, stat],
+  );
+
   const runInline = useCallback(
     (req: InlineRequest) => {
       const { action, anchor, sources, depth } = req;
@@ -809,6 +863,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
             if (inlineRun.current === runId) inlineRun.current = null;
             const result = acc.finish(sources);
             void logRun({ acc, runId, action, depth, placement: "inline", ctx, citations: result.citations, ok: done });
+            if (done && action.id === "define") void addVocab(runId, anchor, result.summary);
             setInline((cur) =>
               mine(cur)
                 ? {
@@ -824,7 +879,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
         }
       })();
     },
-    [reader, assemble, logRun],
+    [reader, assemble, logRun, addVocab],
   );
 
   const closeInline = useCallback(() => {

@@ -84,10 +84,10 @@ export class AnswerAccumulator {
   }
 
   /** 结束：得到最终显示文字和引用校验结果。 */
-  finish(sources: string[]): { text: string; citations: Citation[] } {
+  finish(sources: string[]): { text: string; citations: Citation[]; summary: string } {
     const a =
       this.obj !== undefined ? answerFromObject(this.obj, this.depth, sources) : parseAnswer(this.raw, this.depth, sources);
     // 退回按文字解析时保留原文（模型可能写了解析不出的段落）；结构化时用规整后的 Markdown。
-    return { text: this.obj !== undefined ? answerToMarkdown(a) : this.raw.trim(), citations: a.citations };
+    return { text: this.obj !== undefined ? answerToMarkdown(a) : this.raw.trim(), citations: a.citations, summary: a.summary };
   }
 }

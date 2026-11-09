@@ -69,7 +69,7 @@ export function SearchPalette({
                 onMouseEnter={() => setActive(i)}
                 onClick={() => onPick(h)}
               >
-                <Icon name={h.entry.kind === "source" ? "group-source" : "node-answer"} />
+                <Icon name={h.entry.kind === "source" ? "group-source" : h.entry.kind === "vocab" ? "act-word" : "node-answer"} />
                 <span className="palette-hit-main">
                   <span className="palette-hit-snippet">
                     {h.snippet.slice(0, h.mark[0])}

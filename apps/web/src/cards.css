@@ -353,3 +353,8 @@
     border-top: var(--rd-stroke-contain) solid var(--rd-border); font: var(--rd-type-caption); color: var(--rd-ink-muted);
   }
 }
+
+@layer base {
+  /* 词义卡底部：生词本状态（设计系统 WordCard「已加入生词本 · 第 N 次查」） */
+  .inline-card-vocab { margin: 0; font: var(--rd-type-caption); color: var(--rd-ink-muted); }
+}

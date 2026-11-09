@@ -9,6 +9,7 @@ export * from "./registry.js";
 export * from "./events.js";
 export * from "./source.js";
 export * from "./annotations.js";
+export * from "./vocab.js";
 export * from "./quote.js";
 export * from "./hash.js";
 export * from "./reader.js";

@@ -6,6 +6,7 @@ import { Reader, type Book, type ImportResult, type Vault } from "@reader/core";
 import { registerMarkdownSource } from "@reader/source-markdown";
 import { registerBuiltinActions } from "./builtins";
 import { registerLlmProviders, settingsStore } from "./llm";
+import { vocabStore } from "./vocab-store";
 
 export interface BookSession {
   reader: Reader;
@@ -18,7 +19,8 @@ export interface BookSession {
 
 export async function openBook(vault: Vault, name: string, persistent: boolean): Promise<BookSession> {
   // 全局设置（~/.reader/settings.json）经 dev bridge 读写；和应用级 LLM 共用同一个存取对象。
-  const reader = new Reader(vault, { settings: settingsStore });
+  // 生词本是跨书的（~/.reader/vocab.jsonl）；示例书改动不保存，查词也只记在内存里。
+  const reader = new Reader(vault, { settings: settingsStore, ...(persistent ? { vocab: vocabStore } : {}) });
   registerMarkdownSource(reader.registry);
   registerBuiltinActions(reader.registry);
   registerLlmProviders(reader.registry);

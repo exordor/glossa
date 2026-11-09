@@ -14,6 +14,7 @@ import type { ReaderEdge, ReaderMeta, ReaderNode } from "./types.js";
 import { SCHEMA_VERSION } from "./types.js";
 import type { Vault } from "./vault.js";
 import { Journal } from "./journal.js";
+import { MemoryVocabStore, Vocab, type VocabStore } from "./vocab.js";
 import { NODES_DIR } from "./canvas-store.js";
 import { parseNodeFile } from "./frontmatter.js";
 
@@ -42,6 +43,8 @@ export interface CreateNodeInput {
 export interface ReaderOptions {
   /** 全局设置的存取（浏览器走 dev bridge，Node 用 NodeSettingsStore）；不传时用内存实现，不落盘。 */
   settings?: SettingsStore;
+  /** 生词本 ~/.reader/vocab.jsonl 的存取；不传时用内存实现。 */
+  vocab?: VocabStore;
 }
 
 export class Reader {
@@ -52,6 +55,8 @@ export class Reader {
   readonly llm: LlmService;
   /** 运行记录（.canvas/runs/*.jsonl）与使用统计（.canvas/stats.jsonl），追加写。 */
   readonly journal: Journal;
+  /** 生词本（跨书，用户级）。 */
+  readonly vocab: Vocab;
   private canvas: LoadedCanvas | null = null;
   private bodies: Record<string, string> = {};
   /**
@@ -69,6 +74,7 @@ export class Reader {
   ) {
     this.llm = createAppLlm({ registry: this.registry, events: this.events, settings: opts.settings }).llm;
     this.journal = new Journal(vault);
+    this.vocab = new Vocab(opts.vocab ?? new MemoryVocabStore());
   }
 
   async open(): Promise<{ nodes: number; edges: number; repaired: string[] }> {
