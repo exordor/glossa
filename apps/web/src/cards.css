@@ -292,3 +292,64 @@
   .palette-hit-snippet mark { background: var(--rd-ai-soft-2); color: inherit; border-radius: var(--rd-radius-xs); }
   .palette-hit-title { font: var(--rd-type-caption); color: var(--rd-ink-muted); }
 }
+
+@layer base {
+  /* 阅读器批注标记（设计系统 ReaderMarks）：段落边沟、句子背景、短语下划线、生词点线，各占一个通道。
+     颜色表达来源（AI 蓝 / 用户琥珀），通道表达颗粒度。 */
+  .reader-body { position: relative; padding-left: var(--rd-space-8); }
+  .rc-gutters { position: absolute; left: 0; top: 0; width: var(--rd-space-8); height: 100%; pointer-events: none; }
+  .rc-gutter-row { position: absolute; left: 0; width: 100%; }
+  .rc-gutter {
+    position: absolute; right: var(--rd-space-2); top: var(--rd-space-1); bottom: var(--rd-space-1);
+    width: var(--rd-stroke-card-bar); border-radius: var(--rd-radius-xs); background: var(--rd-ai);
+  }
+  .rc-gutter[data-group="user"] { background: var(--rd-user); }
+  .rc-gutter-count {
+    pointer-events: auto; position: absolute; left: 0; top: 0;
+    width: calc(var(--rd-space-8) - var(--rd-space-3) - var(--rd-stroke-card-bar)); padding: 0;
+    border: 0; border-radius: var(--rd-radius-xs); background: transparent; cursor: pointer;
+    font: var(--rd-type-label); color: var(--rd-ink-muted); text-align: right;
+  }
+  .rc-gutter-count:hover { color: var(--rd-ink); background: var(--rd-surface-hover); }
+  .rc-gutter-count:focus-visible { outline: var(--rd-stroke-focus) solid var(--rd-focus-ring); outline-offset: var(--rd-stroke-focus); }
+
+  .rc-mark-sent { background: var(--rd-ai-soft); border-radius: var(--rd-radius-xs); box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+  .rc-mark-sent[data-level="2"] { background: var(--rd-ai-soft-2); }
+  .rc-mark-sent[data-group="user"] { background: var(--rd-user-soft); }
+  .rc-mark-sent[data-group="user"][data-level="2"] { background: var(--rd-user-soft-2); }
+  .rc-mark-phrase {
+    text-decoration: underline solid var(--rd-ai) var(--rd-stroke-underline);
+    text-underline-offset: var(--rd-space-1); cursor: pointer;
+  }
+  .rc-mark-phrase[data-group="user"] { text-decoration-color: var(--rd-user); }
+  .rc-mark-phrase:hover { text-decoration-thickness: var(--rd-stroke-underline-hover); }
+  .rc-mark-phrase[data-overlap="true"] { text-decoration-style: double; }
+  .rc-mark-sent { cursor: pointer; }
+  .rc-mark-vocab {
+    text-decoration: underline dotted var(--rd-ink-muted) var(--rd-stroke-underline);
+    text-underline-offset: var(--rd-space-1); cursor: help;
+  }
+
+  /* 叠层批注浮层（设计系统 AnnotationStack） */
+  .rc-stack {
+    position: fixed; z-index: var(--rd-z-popover); width: var(--rd-size-popover); padding: var(--rd-space-1);
+    border: var(--rd-stroke-contain) solid var(--rd-border); border-radius: var(--rd-radius-md);
+    background: var(--rd-surface-raised); box-shadow: var(--rd-shadow-popover); color: var(--rd-ink);
+    font-family: var(--rd-font-ui);
+  }
+  .rc-stack:focus-visible { outline: var(--rd-stroke-focus) solid var(--rd-focus-ring); outline-offset: var(--rd-stroke-focus); }
+  .rc-stack-row {
+    display: grid; grid-template-columns: var(--rd-size-icon-sm) calc(var(--rd-space-8) + var(--rd-space-4)) 1fr auto;
+    gap: var(--rd-space-2); align-items: center; padding: var(--rd-space-1) var(--rd-space-2);
+    border-radius: var(--rd-radius-sm); font: var(--rd-type-card-body); cursor: pointer;
+  }
+  .rc-stack-row:hover, .rc-stack-row[aria-selected="true"] { background: var(--rd-surface-hover); }
+  .rc-stack-row > .rc-icon { color: var(--rd-ai); }
+  .rc-stack-row[data-group="user"] > .rc-icon { color: var(--rd-user); }
+  .rc-stack-row .rc-gran { font: var(--rd-type-label); color: var(--rd-ink-muted); }
+  .rc-stack-row .rc-txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .rc-stack-hint {
+    margin-top: var(--rd-space-1); padding: var(--rd-space-1) var(--rd-space-2) 0;
+    border-top: var(--rd-stroke-contain) solid var(--rd-border); font: var(--rd-type-caption); color: var(--rd-ink-muted);
+  }
+}
