@@ -7,6 +7,8 @@
     { "name": "run.completed", "payload": "{ runId: string; nodeId: string; ok: boolean }", "description": "一次 LLM 调用结束，详情在 runs/*.jsonl。" },
     { "name": "source.changed", "payload": "{ sourceId: string; path: string; hash: string }", "description": "来源文件被外部修改，hash 已更新。" },
     { "name": "run.started", "payload": "{ runId: string; nodeId: string; providerId: string; alias: ModelAlias; modelId: string }", "description": "一次 LLM 调用开始（已通过能力检查）。nodeId 为空串表示不属于任何节点。" },
-    { "name": "settings.changed", "payload": "{ keys: string[] }", "description": "全局设置已保存，keys 为变化的路径（最多两层），如 \"llm.providers\"。不含密钥。" }
+    { "name": "settings.changed", "payload": "{ keys: string[] }", "description": "全局设置已保存，keys 为变化的路径（最多两层），如 \"llm.providers\"。不含密钥。" },
+    { "name": "node.deleted", "payload": "{ nodes: string[]; edges: string[] }", "description": "节点被删，连带删掉的连线一起列出。删掉的内容可用 reader.restore() 找回（撤销）。" },
+    { "name": "node.restored", "payload": "{ nodes: string[]; edges: string[] }", "description": "删掉的节点和连线被恢复（撤销删除、重做新建）。" }
   ]
 }

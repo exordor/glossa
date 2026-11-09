@@ -7,7 +7,7 @@
   "properties": {
     "schemaVersion": { "const": 1 },
     "at": { "type": "string", "format": "date-time" },
-    "event": { "enum": ["action", "first-token", "locate", "pin", "depth", "context", "zoom", "focus", "follow", "new-card-hint", "search"] }
+    "event": { "enum": ["action", "first-token", "locate", "pin", "depth", "context", "zoom", "focus", "follow", "new-card-hint", "search", "delete"] }
   },
   "oneOf": [
     { "properties": { "event": { "const": "action" } }, "required": ["actionId", "placement", "followup"] },
@@ -20,6 +20,7 @@
     { "properties": { "event": { "const": "focus" } }, "required": ["size"] },
     { "properties": { "event": { "const": "follow" } }, "required": ["on"] },
     { "properties": { "event": { "const": "new-card-hint" } }, "required": ["dir"] },
-    { "properties": { "event": { "const": "search" } }, "required": ["kind"] }
+    { "properties": { "event": { "const": "search" } }, "required": ["kind"] },
+    { "properties": { "event": { "const": "delete" } }, "required": ["count"] }
   ]
 }
