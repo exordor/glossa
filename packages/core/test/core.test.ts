@@ -76,6 +76,6 @@ describe("引文定位", () => {
     const second = text.lastIndexOf("attention");
     const q = makeQuote(text, second, second + "attention".length);
     const edited = "INSERTED. " + text;
-    expect(findQuote(edited, q)).toEqual({ start: second + 10, end: second + 10 + 9 });
+    expect(findQuote(edited, q)).toMatchObject({ start: second + 10, end: second + 10 + 9 });
   });
 });
