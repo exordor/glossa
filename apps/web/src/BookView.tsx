@@ -11,6 +11,9 @@ import {
   type ContextExcerpt,
   type Citation,
   type StatEvent,
+  type SearchEntry,
+  type SearchHit,
+  paragraphEntries,
   buildRunRecord,
   answerOutput,
   assembleContext,
@@ -30,6 +33,7 @@ import type { BookSession } from "./session";
 import { SourceReader, type TextRange } from "./SourceReader";
 import { InlineCard, type InlineCardState } from "./InlineCard";
 import { ContextPanel } from "./ContextPanel";
+import { SearchPalette } from "./SearchPalette";
 import { type Direction, chapterCluster, focusSet, offscreenDirection } from "./attention";
 import { focusAtom } from "./focus";
 import { EDGE_TYPE } from "./edge-shape";
@@ -118,6 +122,8 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
   /** 视口外新卡提示。 */
   const [newCard, setNewCard] = useState<{ nodeId: string; dir: Direction } | null>(null);
   const newCardRef = useRef<string | null>(null);
+  /** Cmd+K 搜索：打开时现收集条目（原文段落 + 卡片）。 */
+  const [palette, setPalette] = useState<SearchEntry[] | null>(null);
   /** 记一条使用统计（stats.jsonl，不上传）。失败只在控制台提示。 */
   const stat = useCallback(
     (e: StatEvent) => void reader.journal.recordStat(e).catch((err: unknown) => console.warn("统计写入失败", err)),
@@ -285,7 +291,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
   }, [openSourceId, reader, editor]);
 
   // 卡片上的「跳回原文」：打开对应章节，三层定位找到原文，滚过去闪一下。
-  const [locate, setLocate] = useState<{ nodeId: string; seq: number } | null>(null);
+  const [locate, setLocate] = useState<{ nodeId?: string; range?: { sourceId: string; start: number; end: number }; seq: number } | null>(null);
   useEffect(() => {
     let seq = 0;
     const onLocate = (e: Event) => {
@@ -301,9 +307,15 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
   }, [stat]);
   useEffect(() => {
     if (!locate || !chapter) return;
-    const anchor = nodesRef.current.find((n) => n.id === locate.nodeId)?.meta.anchor;
-    if (!anchor || anchor.sourceId !== chapter.doc.sourceId) return;
-    const loc = markdownAdapter.resolve(chapter.doc, anchor);
+    let loc: { start: number; end: number } | null = null;
+    if (locate.range) {
+      if (locate.range.sourceId !== chapter.doc.sourceId) return;
+      loc = locate.range;
+    } else {
+      const anchor = nodesRef.current.find((n) => n.id === locate.nodeId)?.meta.anchor;
+      if (!anchor || anchor.sourceId !== chapter.doc.sourceId) return;
+      loc = markdownAdapter.resolve(chapter.doc, anchor);
+    }
     if (!loc) {
       setLocate(null);
       return;
@@ -329,6 +341,51 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       if (editor.getShape(shapeIdOf(n.id))) editor.updateShape({ id: shapeIdOf(n.id), type: CARD_TYPE, props: cardPropsOf(n, book) });
     },
     [editor, book],
+  );
+
+  /** 打开搜索：每章原文切段落 + 画布上所有卡片的文字。 */
+  const openPalette = useCallback(async () => {
+    const entries: SearchEntry[] = [];
+    for (const [i, src] of book.sources.entries()) {
+      const s = await reader.readSource(src.id);
+      if (s) entries.push(...paragraphEntries(src.id, src.title ?? `第 ${i + 1} 章`, s.text));
+    }
+    const TYPE: Record<string, string> = { chapter: "章节", excerpt: "摘录", operation: "提问", answer: "回答", note: "批注" };
+    for (const n of await reader.listNodes()) {
+      const text = [n.label, n.text, n.meta.anchor?.quote.exact].filter(Boolean).join("\n");
+      if (text && n.meta.type !== "group") entries.push({ kind: "node", id: n.id, title: `${TYPE[n.meta.type] ?? "卡片"}${n.label ? ` · ${n.label}` : ""}`, text });
+    }
+    setPalette(entries);
+  }, [book, reader]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        e.stopPropagation();
+        void openPalette();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [openPalette]);
+
+  /** 搜索结果跳转：原文 → 打开章节、滚动并闪烁；卡片 → 镜头移过去并选中。 */
+  const pickHit = useCallback(
+    (h: SearchHit) => {
+      setPalette(null);
+      if (h.entry.kind === "source") {
+        const start = (h.entry.start ?? 0) + h.offset;
+        setOpenSourceId(h.entry.id);
+        setLocate({ range: { sourceId: h.entry.id, start, end: start + Math.max(1, h.mark[1] - h.mark[0]) }, seq: Date.now() });
+      } else if (editor) {
+        const b = editor.getShapePageBounds(shapeIdOf(h.entry.id));
+        if (b) editor.centerOnPoint({ x: b.x + b.w / 2, y: b.y + b.h / 2 }, cameraAnim());
+        editor.select(shapeIdOf(h.entry.id));
+      }
+      stat({ event: "search", kind: h.entry.kind });
+    },
+    [editor, stat],
   );
 
   /** 镜头动画：≤ 200ms，系统要求减少动效时直接跳。 */
@@ -782,6 +839,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       </nav>
       <main className="canvas">
         <Tldraw shapeUtils={SHAPE_UTILS} onMount={setEditor} />
+        {palette && <SearchPalette entries={palette} onPick={pickHit} onClose={() => setPalette(null)} />}
         {newCard && (
           <button className="new-card-hint" data-dir={newCard.dir} onClick={() => goToCard(newCard.nodeId)}>
             新卡片

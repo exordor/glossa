@@ -270,3 +270,25 @@
   /* 工具条上的开关按钮 */
   .rc-iconbtn[aria-pressed="true"] { color: var(--rd-ai); background: var(--rd-ai-soft); }
 }
+
+@layer base {
+  /* Cmd+K 搜索 */
+  .palette-scrim { position: fixed; inset: 0; z-index: var(--rd-z-palette); background: var(--rd-scrim); display: flex; justify-content: center; align-items: flex-start; padding-top: var(--rd-space-12); }
+  .palette {
+    width: min(var(--rd-size-palette), calc(100vw - 2 * var(--rd-space-4))); max-height: 70vh; display: flex; flex-direction: column;
+    border: var(--rd-stroke-contain) solid var(--rd-border); border-radius: var(--rd-radius-lg); background: var(--rd-surface-raised);
+    box-shadow: var(--rd-shadow-popover); overflow: hidden; color: var(--rd-ink); font-family: var(--rd-font-ui);
+  }
+  .palette-input { display: flex; align-items: center; gap: var(--rd-space-2); padding: var(--rd-space-3); border-bottom: var(--rd-stroke-contain) solid var(--rd-border); color: var(--rd-ink-muted); }
+  .palette-input input { flex: 1; border: 0; outline: none; background: transparent; font: var(--rd-type-body); color: var(--rd-ink); }
+  .palette-kbd { font: var(--rd-type-kbd); padding: 0 var(--rd-space-1); border: var(--rd-stroke-contain) solid var(--rd-border); border-radius: var(--rd-radius-xs); }
+  .palette-results { list-style: none; margin: 0; padding: var(--rd-space-1); overflow: auto; }
+  .palette-empty { padding: var(--rd-space-3); font: var(--rd-type-caption); color: var(--rd-ink-muted); }
+  .palette-hit { display: flex; gap: var(--rd-space-2); align-items: flex-start; padding: var(--rd-space-2); border-radius: var(--rd-radius-sm); cursor: pointer; }
+  .palette-hit > .rc-icon { margin-top: var(--rd-space-1); color: var(--rd-ink-muted); }
+  .palette-hit[aria-selected="true"] { background: var(--rd-surface-hover); }
+  .palette-hit-main { display: flex; flex-direction: column; gap: var(--rd-space-1); min-width: 0; }
+  .palette-hit-snippet { font: var(--rd-type-card-body); overflow-wrap: anywhere; }
+  .palette-hit-snippet mark { background: var(--rd-ai-soft-2); color: inherit; border-radius: var(--rd-radius-xs); }
+  .palette-hit-title { font: var(--rd-type-caption); color: var(--rd-ink-muted); }
+}

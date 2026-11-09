@@ -161,7 +161,9 @@ export type StatEvent =
   /** 跟随阅读开关；auto 为 true 表示换章时自动移了镜头。 */
   | { event: "follow"; on: boolean; auto?: boolean }
   /** 点了视口外新卡提示。 */
-  | { event: "new-card-hint"; dir: "left" | "right" | "up" | "down" };
+  | { event: "new-card-hint"; dir: "left" | "right" | "up" | "down" }
+  /** Cmd+K 搜索后跳转。 */
+  | { event: "search"; kind: "source" | "node" };
 
 export type StatRecord = StatEvent & { schemaVersion: number; at: string };
 
