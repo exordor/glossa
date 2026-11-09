@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/exordor/glossa/schemas/stat.schema.json",
+  "title": "使用统计（.canvas/stats.jsonl 的一行，本地，不上传）",
+  "type": "object",
+  "required": ["schemaVersion", "at", "event"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "at": { "type": "string", "format": "date-time" },
+    "event": { "enum": ["action", "first-token", "locate", "pin", "depth", "context"] }
+  },
+  "oneOf": [
+    { "properties": { "event": { "const": "action" } }, "required": ["actionId", "placement", "followup"] },
+    { "properties": { "event": { "const": "first-token" } }, "required": ["actionId", "ms"] },
+    { "properties": { "event": { "const": "locate" } }, "required": ["nodeId", "sourceId"] },
+    { "properties": { "event": { "const": "pin" } }, "required": ["actionId"] },
+    { "properties": { "event": { "const": "depth" } }, "required": ["actionId", "depth"] },
+    { "properties": { "event": { "const": "context" } }, "required": ["action", "excluded"] }
+  ]
+}

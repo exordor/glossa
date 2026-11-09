@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/exordor/glossa/schemas/run.schema.json",
+  "title": "运行记录（.canvas/runs/<YYYY-MM-DD>.jsonl 的一行）",
+  "type": "object",
+  "required": ["schemaVersion", "runId", "at", "nodeId", "actionId", "depth", "placement", "providerId", "alias", "modelId", "ok", "context", "prompt", "promptHash", "cacheKey", "output", "structured", "usage", "citations", "citationErrors"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string" },
+    "at": { "type": "string", "format": "date-time" },
+    "nodeId": { "type": "string", "description": "回答卡 id；就地卡为空串" },
+    "actionId": { "type": "string" },
+    "depth": { "enum": ["brief", "points", "steps"] },
+    "placement": { "enum": ["canvas", "inline"] },
+    "providerId": { "type": "string" },
+    "alias": { "enum": ["fast", "smart", "vision", "image"] },
+    "modelId": { "type": "string" },
+    "ok": { "type": "boolean" },
+    "error": { "type": "string", "description": "LlmErrorCode" },
+    "finishReason": { "type": "string" },
+    "context": {
+      "type": "object",
+      "required": ["tokens", "budget", "compressed", "items"],
+      "properties": {
+        "tokens": { "type": "integer", "minimum": 0 },
+        "budget": { "type": "integer", "minimum": 0 },
+        "compressed": { "type": "boolean" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "kind", "tokens"],
+            "properties": {
+              "id": { "type": "string" },
+              "kind": { "enum": ["system", "summary", "excerpt", "around", "conversation", "note", "question"] },
+              "tokens": { "type": "integer", "minimum": 0 },
+              "nodeId": { "type": "string" },
+              "compressed": { "enum": ["dropped", "shortened", "summarized"] },
+              "excluded": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "prompt": { "type": "object", "required": ["instructions", "message"], "properties": { "instructions": { "type": "string" }, "message": { "type": "string" } } },
+    "promptHash": { "type": "string" },
+    "cacheKey": { "type": "string" },
+    "output": { "type": "string" },
+    "structured": { "type": "boolean" },
+    "usage": {
+      "type": "object",
+      "properties": { "inputTokens": { "type": "integer" }, "outputTokens": { "type": "integer" }, "reasoningTokens": { "type": "integer" } }
+    },
+    "firstChunkMs": { "type": "number" },
+    "durationMs": { "type": "number" },
+    "costUsd": { "type": "number", "minimum": 0 },
+    "citations": {
+      "type": "array",
+      "items": { "type": "object", "required": ["quote", "verified"], "properties": { "quote": { "type": "string" }, "verified": { "type": "boolean" } } }
+    },
+    "citationErrors": { "type": "integer", "minimum": 0 }
+  }
+}

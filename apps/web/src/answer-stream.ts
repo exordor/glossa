@@ -6,6 +6,8 @@ import {
   type AnswerDepth,
   type Citation,
   type LlmChunk,
+  type LlmUsage,
+  type ModelAlias,
   answerFromObject,
   answerToMarkdown,
   parseAnswer,
@@ -14,20 +16,62 @@ import {
 /** 还没解析出对象时的原始文字像不像 JSON（是的话先不显示，免得闪一下花括号）。 */
 const looksLikeJson = (t: string) => /^\s*(\{|```)/.test(t);
 
+/** 运行记录要用的元信息（来自 start / finish / error 分块）。 */
+export interface RunMeta {
+  providerId?: string;
+  alias?: ModelAlias;
+  modelId?: string;
+  finishReason?: string;
+  usage?: LlmUsage;
+  firstChunkMs?: number;
+  durationMs?: number;
+  error?: string;
+  /** 本地计时：从开始到第一块文字 / 对象的毫秒数（含上下文组装）。 */
+  firstVisibleMs?: number;
+}
+
 export class AnswerAccumulator {
   private raw = "";
   private obj: unknown = undefined;
+  private final = false;
+  readonly meta: RunMeta = {};
+  private readonly t0 = Date.now();
 
   constructor(private readonly depth: AnswerDepth) {}
 
+  /** 模型原始输出（结构化时是 JSON 文本）。 */
+  get output(): string {
+    return this.raw;
+  }
+
+  /** 拿到了完整合法的结构化对象。 */
+  get structured(): boolean {
+    return this.final;
+  }
+
   /** 喂一个分块；返回显示内容是否可能变了。 */
   push(c: LlmChunk): boolean {
+    if (c.type === "start") {
+      Object.assign(this.meta, { providerId: c.providerId, alias: c.alias, modelId: c.modelId });
+      return false;
+    }
+    if (c.type === "finish") {
+      Object.assign(this.meta, { finishReason: c.finishReason, usage: c.usage, durationMs: c.durationMs });
+      if (c.firstChunkMs !== undefined) this.meta.firstChunkMs = c.firstChunkMs;
+      return false;
+    }
+    if (c.type === "error") {
+      this.meta.error = c.error.code;
+      return false;
+    }
+    if ((c.type === "text" || c.type === "object") && this.meta.firstVisibleMs === undefined) this.meta.firstVisibleMs = Date.now() - this.t0;
     if (c.type === "text") {
       this.raw += c.delta;
       return this.obj === undefined;
     }
     if (c.type === "object") {
       this.obj = c.value;
+      if (c.final) this.final = true;
       return true;
     }
     return false;

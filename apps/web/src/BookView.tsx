@@ -8,6 +8,9 @@ import {
   type SourceDoc,
   type AssembledContext,
   type ContextExcerpt,
+  type Citation,
+  type StatEvent,
+  buildRunRecord,
   answerOutput,
   assembleContext,
   newId,
@@ -104,6 +107,11 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
   /** 打开着的「本次上下文」面板：某张回答卡的，或就地卡的。 */
   const [ctxPanel, setCtxPanel] = useState<{ kind: "answer"; nodeId: string; context: AssembledContext } | { kind: "inline" } | null>(null);
   const mountedRef = useRef(true);
+  /** 记一条使用统计（stats.jsonl，不上传）。失败只在控制台提示。 */
+  const stat = useCallback(
+    (e: StatEvent) => void reader.journal.recordStat(e).catch((err: unknown) => console.warn("统计写入失败", err)),
+    [reader],
+  );
 
   useEffect(() => {
     mountedRef.current = true;
@@ -245,10 +253,11 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       if (!node?.meta.anchor) return;
       setOpenSourceId(node.meta.anchor.sourceId);
       setLocate({ nodeId, seq: ++seq });
+      stat({ event: "locate", nodeId, sourceId: node.meta.anchor.sourceId });
     };
     window.addEventListener("glossa:locate", onLocate);
     return () => window.removeEventListener("glossa:locate", onLocate);
-  }, []);
+  }, [stat]);
   useEffect(() => {
     if (!locate || !chapter) return;
     const anchor = nodesRef.current.find((n) => n.id === locate.nodeId)?.meta.anchor;
@@ -325,6 +334,55 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
     [reader, requestFor],
   );
 
+  /** 写运行记录（runs/*.jsonl）和首字时间统计。记录失败不影响阅读，只在控制台提示。 */
+  const logRun = useCallback(
+    async (o: {
+      acc: AnswerAccumulator;
+      runId: string;
+      nodeId?: string;
+      action: ActionTemplate;
+      depth: AnswerDepth;
+      placement: "canvas" | "inline";
+      ctx: AssembledContext;
+      citations: Citation[];
+      ok: boolean;
+    }) => {
+      const m = o.acc.meta;
+      try {
+        const ps = await reader.llm.providerSettings();
+        const pricing = m.modelId ? ps?.capabilities?.[m.modelId]?.pricing : undefined;
+        await reader.journal.recordRun(
+          buildRunRecord({
+            runId: o.runId,
+            ...(o.nodeId ? { nodeId: o.nodeId } : {}),
+            actionId: o.action.id,
+            actionPrompt: o.action.prompt,
+            depth: o.depth,
+            placement: o.placement,
+            providerId: m.providerId ?? "",
+            alias: m.alias ?? o.action.model,
+            modelId: m.modelId ?? "",
+            context: o.ctx,
+            output: o.acc.output,
+            structured: o.acc.structured,
+            ok: o.ok,
+            ...(m.error ? { error: m.error } : {}),
+            ...(m.finishReason ? { finishReason: m.finishReason } : {}),
+            ...(m.usage ? { usage: m.usage } : {}),
+            ...(m.firstChunkMs !== undefined ? { firstChunkMs: m.firstChunkMs } : {}),
+            ...(m.durationMs !== undefined ? { durationMs: m.durationMs } : {}),
+            ...(pricing ? { pricing } : {}),
+            citations: o.citations,
+          }),
+        );
+        if (o.ok && m.firstVisibleMs !== undefined) await reader.journal.recordStat({ event: "first-token", actionId: o.action.id, ms: m.firstVisibleMs });
+      } catch (e) {
+        console.warn("运行记录写入失败", e);
+      }
+    },
+    [reader],
+  );
+
   /** 流式写回答卡：文字增量每帧最多更新一次卡片，结束时存一次盘。 */
   const streamAnswer = useCallback(
     async (answerId: string, action: ActionTemplate, req: GenRequest) => {
@@ -332,9 +390,9 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       const runId = newId();
       runsRef.current.set(answerId, runId);
       requestsRef.current.set(answerId, { actionId: action.id, ...req });
+      const acc = new AnswerAccumulator(depth);
       const ctx = await assemble(action, req);
       contextsRef.current.set(answerId, ctx);
-      const acc = new AnswerAccumulator(depth);
       let raf = 0;
       const flush = () => {
         raf = 0;
@@ -348,6 +406,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
         const text = error ? (answer ? `${answer}\n\n（中断：${error}）` : error) : answer;
         refreshCard(await reader.updateNode(answerId, { text, status, body: text, depth, citations }));
         save();
+        void logRun({ acc, runId, nodeId: answerId, action, depth, placement: "canvas", ctx, citations, ok: status === "done" });
       };
       try {
         for await (const c of reader.llm.run({
@@ -371,7 +430,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
         if (runsRef.current.get(answerId) === runId) runsRef.current.delete(answerId);
       }
     },
-    [reader, refreshCard, save, assemble],
+    [reader, refreshCard, save, assemble, logRun],
   );
 
   // 失败回答卡上的「重试」：用同一请求重新生成。
@@ -405,11 +464,12 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
           context = await assemble(action, req);
         }
         setCtxPanel({ kind: "answer", nodeId, context });
+        stat({ event: "context", action: "open", excluded: context.items.filter((i) => i.excluded).length });
       })();
     };
     window.addEventListener("glossa:context", onContext);
     return () => window.removeEventListener("glossa:context", onContext);
-  }, [reader, answerRequest, assemble]);
+  }, [reader, answerRequest, assemble, stat]);
 
   /** 去掉某几项后重新生成这张回答卡。 */
   const rerunAnswer = useCallback(
@@ -419,6 +479,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       const action = req && reader.registry.get("action", req.actionId);
       if (!req || !action) return;
       refreshCard(await reader.updateNode(answerId, { status: "running", text: "" }));
+      stat({ event: "context", action: "rerun", excluded: exclude.length });
       const run = streamAnswer(answerId, action, { ...req, exclude });
       // 面板跟着显示新的上下文
       setTimeout(() => {
@@ -427,7 +488,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       }, 0);
       await run;
     },
-    [reader, answerRequest, refreshCard, streamAnswer],
+    [reader, answerRequest, refreshCard, streamAnswer, stat],
   );
 
   /** 就地卡：流式写进阅读器顶部的小卡，不建画布节点。同一时间只有一张，新的会取消旧的。 */
@@ -441,10 +502,10 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       setInline({ runId, actionId: action.id, actionName: action.name, quote: anchor.quote.exact, text: "", status: "running", depth, citations: [] });
       const mine = (c: InlineCardState | null) => c?.runId === runId;
       void (async () => {
+        const acc = new AnswerAccumulator(depth);
         const ctx = await assemble(action, req);
         if (inlineRun.current !== runId) return;
         setInline((c) => (mine(c) ? { ...c!, context: ctx } : c));
-        const acc = new AnswerAccumulator(depth);
         let raf = 0;
         const flush = () => {
           raf = 0;
@@ -465,6 +526,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
             const done = c.type === "finish";
             if (inlineRun.current === runId) inlineRun.current = null;
             const result = acc.finish(sources);
+            void logRun({ acc, runId, action, depth, placement: "inline", ctx, citations: result.citations, ok: done });
             setInline((cur) =>
               mine(cur)
                 ? {
@@ -480,7 +542,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
         }
       })();
     },
-    [reader, assemble],
+    [reader, assemble, logRun],
   );
 
   const closeInline = useCallback(() => {
@@ -538,8 +600,9 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
     syncShapes(editor, nodesRef.current, await reader.listEdges(), book);
     editor.select(shapeIdOf(answer.id));
     save();
+    stat({ event: "pin", actionId: req.action.id });
     closeInline();
-  }, [inline, editor, reader, book, save, nextSlot, closeInline]);
+  }, [inline, editor, reader, book, save, nextSlot, closeInline, stat]);
 
   const runAction = useCallback(
     async (actionId: string) => {
@@ -558,7 +621,9 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       if (streams && action && action.placement === "inline") {
         setSelection(null);
         window.getSelection()?.removeAllRanges();
-        runInline({ action, anchor, ...(await requestFor(anchor, {})), depth: action.depth });
+        const g = await requestFor(anchor, {});
+        stat({ event: "action", actionId: action.id, placement: "inline", followup: Boolean(g.base.conversation?.length) });
+        runInline({ action, anchor, ...g, depth: action.depth });
         return;
       }
       const nodes = await reader.listNodes();
@@ -597,10 +662,11 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       save();
       if (answerId && action) {
         const g = await requestFor(anchor, { excerptNodeId: node.id, answerNodeId: answerId });
+        stat({ event: "action", actionId: action.id, placement: "canvas", followup: Boolean(g.base.conversation?.length) });
         void streamAnswer(answerId, action, { ...g, depth: action.depth });
       }
     },
-    [chapter, selection, editor, reader, save, book, streamAnswer, runInline, requestFor],
+    [chapter, selection, editor, reader, save, book, streamAnswer, runInline, requestFor, stat],
   );
 
   return (
@@ -643,7 +709,9 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
             busy={inline.status === "running"}
             onRerun={(exclude) => {
               const r = inlineReq.current;
-              if (r) runInline({ ...r, exclude });
+              if (!r) return;
+              stat({ event: "context", action: "rerun", excluded: exclude.length });
+              runInline({ ...r, exclude });
             }}
             onClose={() => setCtxPanel(null)}
           />
@@ -696,10 +764,15 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
               const r = inlineReq.current;
               if (r) runInline(r);
             }}
-            onContext={() => setCtxPanel({ kind: "inline" })}
+            onContext={() => {
+              setCtxPanel({ kind: "inline" });
+              stat({ event: "context", action: "open", excluded: inline.context?.items.filter((i) => i.excluded).length ?? 0 });
+            }}
             onDepth={(depth) => {
               const r = inlineReq.current;
-              if (r && depth !== r.depth) runInline({ ...r, depth });
+              if (!r || depth === r.depth) return;
+              stat({ event: "depth", actionId: r.action.id, depth });
+              runInline({ ...r, depth });
             }}
           />
         )}
