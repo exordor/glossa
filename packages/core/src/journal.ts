@@ -165,7 +165,9 @@ export type StatEvent =
   /** Cmd+K 搜索后跳转。 */
   | { event: "search"; kind: "source" | "node" }
   /** 删了卡（Delete 键或撤销新建），count 是张数。 */
-  | { event: "delete"; count: number };
+  | { event: "delete"; count: number }
+  /** 阅读器里的多层批注：悬停出叠层浮层、单击标记打开卡片、点边沟角标；layers 是命中的层数。 */
+  | { event: "annotation"; via: "hover" | "click" | "gutter"; layers: number };
 
 export type StatRecord = StatEvent & { schemaVersion: number; at: string };
 

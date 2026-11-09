@@ -1,42 +1,134 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Fragment, jsx, jsxs } from "react/jsx-runtime";
 import { toJsxRuntime } from "hast-util-to-jsx-runtime";
-import type { SourceDoc } from "@reader/core";
+import { type GutterMark, type MarkSegment, type SourceDoc, gutterLabel } from "@reader/core";
 import { renderToHast, type RenderOptions } from "@reader/source-markdown/render";
+import { decorateHast } from "./reader-marks";
 
 export interface TextRange {
   start: number;
   end: number;
 }
 
-/** 渲染后的原文。文字都包在 [data-s] span 里，选区据此换算回源文件偏移。 */
+/** 原文里一个位置被指到（悬停 / 单击批注标记）：源偏移 + 屏幕位置（浮层贴着它放）。 */
+export interface MarkPoint {
+  offset: number;
+  rect: { left: number; top: number; bottom: number };
+}
+
+type Hast = Awaited<ReturnType<typeof renderToHast>>;
+
+/**
+ * 渲染后的原文。文字都包在 [data-s] span 里，选区据此换算回源文件偏移。
+ * 批注标记：句子背景、短语 / 生词下划线切进 HAST；段落边沟画在左侧一层，按块的实际位置摆。
+ */
 export function SourceReader({
   doc,
   resolveAsset,
   onSelect,
+  segments = [],
+  gutters = [],
+  onMarkHover,
+  onMarkClick,
+  onGutter,
 }: {
   doc: SourceDoc;
   resolveAsset: RenderOptions["resolveAsset"];
   onSelect: (range: TextRange | null) => void;
+  segments?: readonly MarkSegment[];
+  gutters?: readonly GutterMark[];
+  onMarkHover?: (p: MarkPoint | null) => void;
+  onMarkClick?: (p: MarkPoint) => void;
+  onGutter?: (g: GutterMark, rect: MarkPoint["rect"]) => void;
 }) {
-  const [content, setContent] = useState<ReactNode>(null);
+  const [hast, setHast] = useState<Hast | null>(null);
+  const body = useRef<HTMLElement>(null);
+  const [rows, setRows] = useState<Array<{ g: GutterMark; top: number; height: number }>>([]);
 
   useEffect(() => {
     let alive = true;
-    void renderToHast(doc, { resolveAsset }).then((hast) => {
-      if (alive) setContent(toJsxRuntime(hast, { Fragment, jsx, jsxs }));
+    void renderToHast(doc, { resolveAsset }).then((h) => {
+      if (alive) setHast(h);
     });
     return () => {
       alive = false;
     };
   }, [doc, resolveAsset]);
 
+  const content = useMemo<ReactNode>(
+    () => (hast ? toJsxRuntime(decorateHast(hast as Parameters<typeof decorateHast>[0], segments) as Hast, { Fragment, jsx, jsxs }) : null),
+    [hast, segments],
+  );
+
+  // 边沟：量每个有批注的块在正文里的位置；正文尺寸变了（图片加载、窗口拖宽）重新量。
+  useLayoutEffect(() => {
+    const root = body.current;
+    if (!root || !gutters.length) return setRows([]);
+    const measure = () => {
+      const base = root.getBoundingClientRect().top;
+      setRows(
+        gutters.flatMap((g) => {
+          const el = root.querySelector<HTMLElement>(`[data-block-s="${g.start}"]`);
+          if (!el) return [];
+          const r = el.getBoundingClientRect();
+          return [{ g, top: r.top - base, height: r.height }];
+        }),
+      );
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(root);
+    return () => ro.disconnect();
+  }, [gutters, content]);
+
   function handleMouseUp(e: React.MouseEvent<HTMLElement>) {
     onSelect(selectionToRange(e.currentTarget));
   }
 
+  const pointOf = (target: EventTarget | null): MarkPoint | null => {
+    const mark = (target as HTMLElement | null)?.closest?.<HTMLElement>("[data-rc=mark]");
+    const span = (target as HTMLElement | null)?.closest?.<HTMLElement>("[data-s]") ?? mark?.querySelector<HTMLElement>("[data-s]");
+    if (!mark || !span) return null;
+    const r = mark.getBoundingClientRect();
+    return { offset: Number(span.dataset.s), rect: { left: r.left, top: r.top, bottom: r.bottom } };
+  };
+
   return (
-    <article className="reader-body" onMouseUp={handleMouseUp}>
+    <article
+      ref={body}
+      className="reader-body"
+      onMouseUp={handleMouseUp}
+      onMouseOver={(e) => onMarkHover?.(pointOf(e.target))}
+      onMouseLeave={() => onMarkHover?.(null)}
+      onClick={(e) => {
+        // 拖选文字不算点击。
+        if (!onMarkClick || !window.getSelection()?.isCollapsed) return;
+        const p = pointOf(e.target);
+        if (p) onMarkClick(p);
+      }}
+    >
+      {rows.length > 0 && (
+        <div className="rc-gutters" aria-hidden={false}>
+          {rows.map(({ g, top, height }) => (
+            <div key={g.start} className="rc-gutter-row" style={{ top, height }}>
+              <button
+                type="button"
+                className="rc-gutter-count"
+                data-rc="gutter"
+                data-group={g.group}
+                aria-label={`本段 ${g.count} 条批注`}
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  onGutter?.(g, { left: r.left, top: r.top, bottom: r.bottom });
+                }}
+              >
+                {gutterLabel(g.count)}
+              </button>
+              <span className="rc-gutter" data-group={g.group} />
+            </div>
+          ))}
+        </div>
+      )}
       {content}
     </article>
   );

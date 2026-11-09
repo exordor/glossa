@@ -13,6 +13,11 @@ import {
   type StatEvent,
   type SearchEntry,
   type SearchHit,
+  type AnnotationMark,
+  type GutterMark,
+  annotationsAt,
+  gutterMarks,
+  markSegments,
   paragraphEntries,
   buildRunRecord,
   answerOutput,
@@ -34,6 +39,9 @@ import { SourceReader, type TextRange } from "./SourceReader";
 import { InlineCard, type InlineCardState } from "./InlineCard";
 import { ContextPanel } from "./ContextPanel";
 import { SearchPalette } from "./SearchPalette";
+import { AnnotationStack } from "./AnnotationStack";
+import { annotationMarksFor } from "./reader-marks";
+import type { MarkPoint } from "./SourceReader";
 import { type Direction, chapterCluster, focusSet, offscreenDirection } from "./attention";
 import { focusAtom } from "./focus";
 import { EDGE_TYPE } from "./edge-shape";
@@ -121,6 +129,8 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
   const [follow, setFollow] = useState(true);
   /** 视口外新卡提示。 */
   const [newCard, setNewCard] = useState<{ nodeId: string; dir: Direction } | null>(null);
+  /** 画布内容的版本号：变了就重算阅读器里的批注标记。 */
+  const [canvasRev, setCanvasRev] = useState(0);
   const newCardRef = useRef<string | null>(null);
   /** Cmd+K 搜索：打开时现收集条目（原文段落 + 卡片）。 */
   const [palette, setPalette] = useState<SearchEntry[] | null>(null);
@@ -256,6 +266,18 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
           },
           { source: "user", scope: "document" },
         ),
+      );
+      // 卡片增删改（含流式写回答、撤销重做）→ 重算阅读器里的批注标记，一帧最多一次。
+      let marksRaf = 0;
+      cleanups.push(
+        editor.store.listen(
+          () => {
+            cancelAnimationFrame(marksRaf);
+            marksRaf = requestAnimationFrame(() => setCanvasRev((r) => r + 1));
+          },
+          { scope: "document" },
+        ),
+        () => cancelAnimationFrame(marksRaf),
       );
       cameraReady.current = true;
       const saveCamera = debounce(() => void reader.saveView({ camera: cameraOf(editor), ...(openSourceRef.current ? { openSourceId: openSourceRef.current } : {}) }), 500);
@@ -480,6 +502,75 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
     },
     [editor, newCard, stat],
   );
+
+  // 阅读器里的多层批注：这一章上的摘录卡和批注卡 → 句子背景、短语下划线、段落边沟。
+  const marks = useMemo<AnnotationMark[]>(() => {
+    if (!chapter || !editor) return [];
+    const edges = editor
+      .getCurrentPageShapes()
+      .flatMap((s) => (s.type === EDGE_TYPE ? [{ id: s.id, ...(s.props as { from: string; to: string; role: ReaderEdge["role"] }) }] : []));
+    return annotationMarksFor(chapter.doc, nodesRef.current, edges);
+    // canvasRev：nodesRef 是 ref，靠它触发重算。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chapter, editor, canvasRev]);
+  const segments = useMemo(() => markSegments(marks), [marks]);
+  const gutters = useMemo(() => gutterMarks(marks), [marks]);
+
+  /** 叠层浮层：悬停命中两层以上时出现；点边沟角标时列出本段全部批注（带键盘焦点）。 */
+  const [stack, setStack] = useState<{ items: AnnotationMark[]; at: { left: number; bottom: number }; focus: boolean; hint?: string } | null>(null);
+  const stackHover = useRef({ timer: 0 as ReturnType<typeof setTimeout> | 0, inside: false, pinned: false });
+  const lastClick = useRef<{ key: string; i: number } | null>(null);
+  useEffect(() => setStack(null), [chapter]);
+
+  const onMarkHover = useCallback(
+    (p: MarkPoint | null) => {
+      const h = stackHover.current;
+      if (h.pinned) return;
+      clearTimeout(h.timer);
+      h.timer = setTimeout(
+        () => {
+          if (!p) return void (!h.inside && setStack(null));
+          const items = annotationsAt(marks, p.offset);
+          if (items.length < 2) return void (!h.inside && setStack(null));
+          setStack({ items, at: { left: p.rect.left, bottom: p.rect.bottom }, focus: false, hint: "单击打开最窄的一层，再点一次切到下一层" });
+          stat({ event: "annotation", via: "hover", layers: items.length });
+        },
+        p ? 300 : 200,
+      );
+    },
+    [marks, stat],
+  );
+
+  /** 单击批注标记：默认打开最窄的那层；在同一处再点一次，循环到下一层。 */
+  const onMarkClick = useCallback(
+    (p: MarkPoint) => {
+      const items = annotationsAt(marks, p.offset);
+      if (!items.length) return;
+      const key = items.map((m) => m.id).join(",");
+      const i = lastClick.current?.key === key ? (lastClick.current.i + 1) % items.length : 0;
+      lastClick.current = { key, i };
+      goToCard(items[i]!.id);
+      stat({ event: "annotation", via: "click", layers: items.length });
+    },
+    [marks, goToCard, stat],
+  );
+
+  const onGutter = useCallback(
+    (g: GutterMark, rect: MarkPoint["rect"]) => {
+      const byId = new Map(marks.map((m) => [m.id, m]));
+      const items = g.ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
+      stackHover.current.pinned = true;
+      setStack({ items, at: { left: rect.left, bottom: rect.bottom }, focus: true });
+      stat({ event: "annotation", via: "gutter", layers: items.length });
+    },
+    [marks, stat],
+  );
+
+  const closeStack = useCallback(() => {
+    stackHover.current.pinned = false;
+    stackHover.current.inside = false;
+    setStack(null);
+  }, []);
 
   /** 组装本次上下文（第 6 步）：预算按动作的模型别名取。 */
   const assemble = useCallback(
@@ -889,6 +980,27 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       </nav>
       <main className="canvas">
         <Tldraw shapeUtils={SHAPE_UTILS} onMount={setEditor} />
+        {stack && (
+          <AnnotationStack
+            items={stack.items}
+            at={stack.at}
+            focus={stack.focus}
+            hint={stack.hint}
+            onHover={(inside) => {
+              stackHover.current.inside = inside;
+              if (!inside && !stackHover.current.pinned) onMarkHover(null);
+            }}
+            onOpen={(m) => {
+              closeStack();
+              goToCard(m.id);
+            }}
+            onLocate={(m) => {
+              closeStack();
+              setLocate({ range: { sourceId: m.sourceId, start: m.start, end: m.end }, seq: Date.now() });
+            }}
+            onClose={closeStack}
+          />
+        )}
         {palette && <SearchPalette entries={palette} onPick={pickHit} onClose={() => setPalette(null)} />}
         {newCard && (
           <button className="new-card-hint" data-dir={newCard.dir} onClick={() => goToCard(newCard.nodeId)}>
@@ -994,7 +1106,16 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
           />
         )}
         {chapter ? (
-          <SourceReader doc={chapter.doc} resolveAsset={chapter.resolveAsset} onSelect={setSelection} />
+          <SourceReader
+            doc={chapter.doc}
+            resolveAsset={chapter.resolveAsset}
+            onSelect={setSelection}
+            segments={segments}
+            gutters={gutters}
+            onMarkHover={onMarkHover}
+            onMarkClick={onMarkClick}
+            onGutter={onGutter}
+          />
         ) : (
           <p className="reader-empty">加载中…</p>
         )}

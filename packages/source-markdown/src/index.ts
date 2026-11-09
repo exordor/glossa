@@ -72,6 +72,12 @@ function blockAt(doc: SourceDoc, offset: number): Block | undefined {
     treeOf(doc).blocks.filter((b) => b.start <= offset).at(-1);
 }
 
+/** 原文位置所在的顶层块（段落、列表、代码块…）的范围；阅读器边沟按它画。 */
+export function blockRange(doc: SourceDoc, offset: number): { start: number; end: number } | null {
+  const b = blockAt(doc, offset);
+  return b ? { start: b.start, end: b.end } : null;
+}
+
 const SENTENCE_END = /[.?!;。？！；]/;
 
 function sentenceRange(text: string, block: Block, start: number, end: number): [number, number] {
