@@ -22,6 +22,7 @@ import {
   type SourceDoc,
   contentHash,
   findQuote,
+  scoreQuote,
   makeQuote,
 } from "@reader/core";
 
@@ -140,20 +141,20 @@ export const markdownAdapter: SourceAdapter = {
     if (anchor.fileHash === doc.hash && text.slice(anchor.start, anchor.end) === anchor.quote.exact) {
       return { sourceId: doc.sourceId, start: anchor.start, end: anchor.end, layer: 2 };
     }
-    // 第一层：标题路径 + 块序号，在块内找引文。
+    // 第一层：标题路径 + 块序号，在块内找引文；第三层：全文按引文 + 前后文打分。
+    // 插段后同一序号的块可能换成了别的段落，里面碰巧也有这个词：块内候选的前后文得分必须不低于全文最高分，
+    // 否则以第三层为准（锚点黄金测试抓到的问题）。
+    const global = findQuote(text, anchor.quote, anchor.start);
     const block = treeOf(doc).blocks.find(
       (b) => b.index === anchor.blockIndex && b.headingPath.join("\u0000") === anchor.headingPath.join("\u0000"),
     );
-    if (block) {
-      const i = text.slice(block.start, block.end).indexOf(anchor.quote.exact);
-      if (i !== -1) {
-        const start = block.start + i;
-        return { sourceId: doc.sourceId, start, end: start + anchor.quote.exact.length, layer: 1 };
-      }
+    if (block && global) {
+      const inBlock = scoreQuote(text, anchor.quote, block.start, block.end).sort(
+        (a, b) => b.score - a.score || Math.abs(a.start - anchor.start) - Math.abs(b.start - anchor.start),
+      )[0];
+      if (inBlock && inBlock.score >= global.score) return { sourceId: doc.sourceId, start: inBlock.start, end: inBlock.end, layer: 1 };
     }
-    // 第三层：引文 + 前后文。
-    const hit = findQuote(text, anchor.quote, anchor.start);
-    return hit ? { sourceId: doc.sourceId, ...hit, layer: 3 } : null;
+    return global ? { sourceId: doc.sourceId, start: global.start, end: global.end, layer: 3 } : null;
   },
 
   extract(doc, anchor): ContextPart {
