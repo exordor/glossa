@@ -163,7 +163,9 @@ export type StatEvent =
   /** 点了视口外新卡提示。 */
   | { event: "new-card-hint"; dir: "left" | "right" | "up" | "down" }
   /** Cmd+K 搜索后跳转。 */
-  | { event: "search"; kind: "source" | "node" };
+  | { event: "search"; kind: "source" | "node" }
+  /** 删了卡（Delete 键或撤销新建），count 是张数。 */
+  | { event: "delete"; count: number };
 
 export type StatRecord = StatEvent & { schemaVersion: number; at: string };
 

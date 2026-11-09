@@ -10,7 +10,8 @@ import { answerParts } from "./answer-card";
 
 export const shapeIdOf = (nodeId: string): TLShapeId => createShapeId(nodeId);
 export const nodeIdOf = (shapeId: string): string => shapeId.replace(/^shape:/, "");
-const edgeShapeId = (edgeId: string): TLShapeId => createShapeId(`edge-${edgeId}`);
+export const edgeShapeId = (edgeId: string): TLShapeId => createShapeId(`edge-${edgeId}`);
+export const edgeIdOf = (shapeId: string): string => shapeId.replace(/^shape:edge-/, "");
 
 /** 每种卡的默认高度（宽度来自设计系统 size-card-*）。内容超出时卡内截断，全文去右侧面板读。 */
 export const CARD_SIZE: Record<string, { w: number; h: number }> = {
@@ -88,23 +89,37 @@ export function cardPropsOf(node: ReaderNode, book: Book): CardProps {
   }
 }
 
+/**
+ * 撤销重做用 tldraw 的历史栈（见 ADR 0004）：只有「新建卡片」记进历史，一次动作建的卡在下一个停止点前合成一步；
+ * 卡片内容更新（流式写回答）和连线都不记，连线永远跟着 @reader/core 的数据走。
+ */
 export function syncShapes(editor: Editor, nodes: ReaderNode[], edges: ReaderEdge[], book: Book) {
+  const ignore = { history: "ignore" } as const;
   editor.run(() => {
-    // 连线先建，排在卡片下面
+    const keep = new Set(edges.map((e) => edgeShapeId(e.id)));
+    const stale = editor.getCurrentPageShapes().filter((s) => s.type === EDGE_TYPE && !keep.has(s.id));
+    if (stale.length) editor.deleteShapes(stale.map((s) => s.id));
     for (const e of edges) {
       const id = edgeShapeId(e.id);
       const props = { from: e.from, to: e.to, role: e.role, label: e.label ?? "" };
       if (!editor.getShape(id)) editor.createShape({ id, type: EDGE_TYPE, x: 0, y: 0, props });
     }
     for (const n of nodes) {
-      if (n.meta.type === "group") continue;
-      const id = shapeIdOf(n.id);
+      const existing = n.meta.type === "group" ? undefined : editor.getShape(shapeIdOf(n.id));
+      if (!existing) continue;
       const props = cardPropsOf(n, book);
-      const existing = editor.getShape(id);
-      if (!existing) editor.createShape({ id, type: CARD_TYPE, x: n.x, y: n.y, props });
-      else if (JSON.stringify(existing.props) !== JSON.stringify(props)) editor.updateShape({ id, type: CARD_TYPE, props });
+      if (JSON.stringify(existing.props) !== JSON.stringify(props)) editor.updateShape({ id: existing.id, type: CARD_TYPE, props });
     }
+  }, ignore);
+  editor.run(() => {
+    for (const n of nodes) {
+      if (n.meta.type === "group" || editor.getShape(shapeIdOf(n.id))) continue;
+      editor.createShape({ id: shapeIdOf(n.id), type: CARD_TYPE, x: n.x, y: n.y, props: cardPropsOf(n, book) });
+    }
+  });
+  editor.run(() => {
+    // 连线排在卡片下面
     const edgeIds = edges.map((e) => edgeShapeId(e.id));
     if (edgeIds.length) editor.sendToBack(edgeIds);
-  });
+  }, ignore);
 }

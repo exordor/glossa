@@ -23,7 +23,7 @@ import { AnswerAccumulator } from "./answer-stream";
 import { type ContextBase, contextBaseFor } from "./context-input";
 import { markdownAdapter } from "@reader/source-markdown";
 import { loadChapterAssets } from "./assets";
-import { CARD_SIZE, cardPropsOf, nodeIdOf, shapeIdOf, syncShapes } from "./canvas-sync";
+import { CARD_SIZE, cardPropsOf, edgeIdOf, edgeShapeId, nodeIdOf, shapeIdOf, syncShapes } from "./canvas-sync";
 import { CARD_TYPE, CardShapeUtil } from "./card-shape";
 import { EdgeShapeUtil } from "./edge-shape";
 import { seedDemoCards } from "./demo-cards";
@@ -166,6 +166,41 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
     });
   }, [reader, book]);
 
+  /** 卡片增删排队同步到数据层，按发生顺序一条条做。 */
+  const structure = useRef<Promise<void>>(Promise.resolve());
+  const applyStructure = async (gone: { nodes: string[]; edges: string[] }, back: { nodes: string[]; edges: string[] }) => {
+    if (!editor) return;
+    let changed = false;
+    if (gone.nodes.length) {
+      // 删掉正在生成的回答卡：取消请求，不再花 token。
+      for (const id of gone.nodes) {
+        const runId = runsRef.current.get(id);
+        if (runId) void reader.llm.cancel(runId);
+      }
+      const r = await reader.deleteNodes(gone.nodes);
+      if (r.nodes.length) statRef.current({ event: "delete", count: r.nodes.length });
+      changed ||= r.nodes.length > 0;
+    }
+    if (gone.edges.length) changed ||= (await reader.deleteEdges(gone.edges)).length > 0;
+    if (back.nodes.length || back.edges.length) {
+      const r = await reader.restore(back);
+      // 生成到一半被撤销的回答：请求已取消，恢复后标成失败，可重试。
+      for (const n of r.nodes) {
+        if (n.meta.type !== "answer" || n.meta.status !== "running" || runsRef.current.has(n.id)) continue;
+        const text = n.text ? `${n.text}\n\n（${INTERRUPTED}）` : INTERRUPTED;
+        await reader.updateNode(n.id, { status: "failed", text, body: text });
+      }
+      changed ||= r.nodes.length + r.edges.length > 0;
+    }
+    if (!changed) return;
+    nodesRef.current = await reader.listNodes();
+    // 补连线 shape、删悬空连线、刷新恢复卡片的内容（撤销重做回来的 shape 可能是旧 props）。
+    syncShapes(editor, nodesRef.current, await reader.listEdges(), book);
+    save();
+  };
+  const applyStructureRef = useRef(applyStructure);
+  applyStructureRef.current = applyStructure;
+
   // 画布：建 shape、恢复视口、监听拖动与选中
   useEffect(() => {
     if (!editor) return;
@@ -187,7 +222,9 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       nodesRef.current = await reader.listNodes();
       const edges = await reader.listEdges();
       if (disposed) return;
-      syncShapes(editor, nodesRef.current, edges, book);
+      // 打开时建的卡不进撤销栈：一按 Cmd+Z 不能把整张画布清空。
+      editor.run(() => syncShapes(editor, nodesRef.current, edges, book), { history: "ignore" });
+      editor.clearHistory();
       const view = await reader.getView();
       if (view?.followReading === false) setFollow(false);
       if (view?.camera) editor.setCamera(view.camera);
@@ -196,12 +233,21 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       cleanups.push(
         editor.store.listen(
           ({ changes }) => {
-            // 删掉正在生成的回答卡：取消请求，不再花 token。
+            // 删卡（Delete 键、撤销新建）与恢复卡（撤销删除、重做新建）同步到数据层。
+            const gone = { nodes: [] as string[], edges: [] as string[] };
+            const back = { nodes: [] as string[], edges: [] as string[] };
             for (const rec of Object.values(changes.removed)) {
               if (rec.typeName !== "shape") continue;
-              const runId = runsRef.current.get(nodeIdOf(rec.id));
-              if (runId) void reader.llm.cancel(runId);
+              if (rec.type === CARD_TYPE) gone.nodes.push(nodeIdOf(rec.id));
+              else if (rec.type === EDGE_TYPE) gone.edges.push(edgeIdOf(rec.id));
             }
+            for (const rec of Object.values(changes.added)) {
+              if (rec.typeName !== "shape") continue;
+              if (rec.type === CARD_TYPE) back.nodes.push(nodeIdOf(rec.id));
+              else if (rec.type === EDGE_TYPE) back.edges.push(edgeIdOf(rec.id));
+            }
+            if (gone.nodes.length || gone.edges.length || back.nodes.length || back.edges.length)
+              structure.current = structure.current.then(() => applyStructureRef.current(gone, back)).catch((e: Error) => setSaveError(e.message));
             for (const [from, to] of Object.values(changes.updated)) {
               // 只处理位置变化：流式写回答时程序改的是 props，不能把卡标成 pinned，也不该每帧存盘。
               if (to.typeName !== "shape" || from.typeName !== "shape" || (from.x === to.x && from.y === to.y)) continue;
@@ -332,13 +378,14 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
     return () => cancelAnimationFrame(raf);
   }, [locate, chapter]);
 
-  /** 改一张卡的显示（不重建所有 shape）。 */
+  /** 改一张卡的显示（不重建所有 shape）。不进撤销栈：撤销跳过流式写入，直接撤掉整张卡。 */
   const refreshCard = useCallback(
     (n: ReaderNode | null) => {
       if (!n || !editor || !mountedRef.current) return;
       const i = nodesRef.current.findIndex((x) => x.id === n.id);
       if (i >= 0) nodesRef.current[i] = n;
-      if (editor.getShape(shapeIdOf(n.id))) editor.updateShape({ id: shapeIdOf(n.id), type: CARD_TYPE, props: cardPropsOf(n, book) });
+      if (editor.getShape(shapeIdOf(n.id)))
+        editor.run(() => editor.updateShape({ id: shapeIdOf(n.id), type: CARD_TYPE, props: cardPropsOf(n, book) }), { history: "ignore" });
     },
     [editor, book],
   );
@@ -722,6 +769,8 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
     const req = inlineReq.current;
     if (!req || !inline || inline.status !== "done" || !editor) return;
     const { x, y } = await nextSlot(req.anchor.sourceId);
+    // 一次动作建的卡合成一步撤销。
+    editor.markHistoryStoppingPoint("pin");
     const e = CARD_SIZE.excerpt!;
     const a = CARD_SIZE.answer!;
     const excerpt = await reader.createNode({ type: "excerpt", x, y, width: e.w, height: e.h, anchor: req.anchor, text: req.anchor.quote.exact });
@@ -771,6 +820,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
         runInline({ action, anchor, ...g, depth: action.depth });
         return;
       }
+      editor.markHistoryStoppingPoint(`action:${actionId}`);
       const nodes = await reader.listNodes();
       const chapterNode = nodes.find((n) => n.meta.type === "chapter" && n.meta.anchor?.sourceId === chapter.doc.sourceId);
       const x = chapterNode?.x ?? 0;

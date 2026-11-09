@@ -14,6 +14,10 @@ export interface ReaderEvents {
   "run.started": { runId: string; nodeId: string; providerId: string; alias: ModelAlias; modelId: string };
   /** 全局设置已保存。keys 为变化的路径（最多两层），不含密钥。 */
   "settings.changed": { keys: string[] };
+  /** 节点被删（连带删掉的连线一起列出）。 */
+  "node.deleted": { nodes: string[]; edges: string[] };
+  /** 删掉的节点和连线被恢复（撤销删除、重做新建）。 */
+  "node.restored": { nodes: string[]; edges: string[] };
 }
 
 export type ReaderEventName = keyof ReaderEvents;
@@ -25,6 +29,8 @@ export const EVENT_NAMES: readonly ReaderEventName[] = [
   "source.changed",
   "run.started",
   "settings.changed",
+  "node.deleted",
+  "node.restored",
 ];
 
 export class EventBus {

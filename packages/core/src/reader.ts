@@ -14,6 +14,8 @@ import type { ReaderEdge, ReaderMeta, ReaderNode } from "./types.js";
 import { SCHEMA_VERSION } from "./types.js";
 import type { Vault } from "./vault.js";
 import { Journal } from "./journal.js";
+import { NODES_DIR } from "./canvas-store.js";
+import { parseNodeFile } from "./frontmatter.js";
 
 export const API_VERSION = "0.2.0";
 
@@ -52,6 +54,14 @@ export class Reader {
   readonly journal: Journal;
   private canvas: LoadedCanvas | null = null;
   private bodies: Record<string, string> = {};
+  /**
+   * 删掉的节点和连线（墓碑），撤销时原样恢复。只在内存里：关掉书后撤销栈也没了。
+   * 节点墓碑带正文，因为保存时 nodes/<id>.md 会被删。
+   */
+  private tombNodes = new Map<string, { node: ReaderNode; body: string | undefined }>();
+  private tombEdges = new Map<string, { edge: ReaderEdge; withNode: boolean }>();
+  /** 已删、待保存时移除 nodes/<id>.md 的节点 id。 */
+  private removed = new Set<string>();
 
   constructor(
     readonly vault: Vault,
@@ -63,6 +73,9 @@ export class Reader {
 
   async open(): Promise<{ nodes: number; edges: number; repaired: string[] }> {
     this.canvas = await loadCanvas(this.vault);
+    this.tombNodes.clear();
+    this.tombEdges.clear();
+    this.removed.clear();
     return { nodes: this.canvas.nodes.length, edges: this.canvas.edges.length, repaired: this.canvas.repaired };
   }
 
@@ -132,6 +145,77 @@ export class Reader {
     return structuredClone(edge);
   }
 
+  /**
+   * 删节点，连带删掉连到它们的连线。删掉的内容留作墓碑，restore() 能原样找回（画布撤销用）。
+   * 返回实际删掉的节点和连线 id。
+   */
+  async deleteNodes(ids: string[]): Promise<{ nodes: string[]; edges: string[] }> {
+    const c = this.require();
+    const drop = new Set(ids);
+    const gone = c.nodes.filter((n) => drop.has(n.id));
+    if (!gone.length) return { nodes: [], edges: [] };
+    for (const n of gone) {
+      let body: string | undefined = this.bodies[n.id];
+      if (body === undefined) {
+        const md = await this.vault.readText(`${NODES_DIR}/${n.id}.md`);
+        body = md === null ? undefined : parseNodeFile(md).body;
+      }
+      delete this.bodies[n.id];
+      this.tombNodes.set(n.id, { node: structuredClone(n), body });
+      this.removed.add(n.id);
+    }
+    // 读正文时有 await：重新按 id 过滤，别用过期的数组下标。
+    c.nodes = c.nodes.filter((n) => !drop.has(n.id));
+    const edges = c.edges.filter((e) => drop.has(e.from) || drop.has(e.to));
+    for (const e of edges) this.tombEdges.set(e.id, { edge: structuredClone(e), withNode: true });
+    c.edges = c.edges.filter((e) => !(drop.has(e.from) || drop.has(e.to)));
+    const result = { nodes: gone.map((n) => n.id), edges: edges.map((e) => e.id) };
+    this.events.emit("node.deleted", result);
+    return result;
+  }
+
+  /** 只删连线。 */
+  async deleteEdges(ids: string[]): Promise<string[]> {
+    const c = this.require();
+    const drop = new Set(ids);
+    const gone = c.edges.filter((e) => drop.has(e.id));
+    for (const e of gone) this.tombEdges.set(e.id, { edge: structuredClone(e), withNode: false });
+    c.edges = c.edges.filter((e) => !drop.has(e.id));
+    return gone.map((e) => e.id);
+  }
+
+  /**
+   * 从墓碑恢复删掉的节点和连线（撤销删除、重做新建）。已经存在的跳过；
+   * 随节点一起删掉的连线，两端都回来时自动恢复；单独删的连线要在 edges 里点名。返回实际恢复的节点和连线。
+   */
+  async restore(ids: { nodes?: string[]; edges?: string[] }): Promise<{ nodes: ReaderNode[]; edges: ReaderEdge[] }> {
+    const c = this.require();
+    const nodes: ReaderNode[] = [];
+    for (const id of ids.nodes ?? []) {
+      const t = this.tombNodes.get(id);
+      if (!t || c.nodes.some((n) => n.id === id)) continue;
+      c.nodes.push(structuredClone(t.node));
+      if (t.body !== undefined) this.bodies[id] = t.body;
+      this.removed.delete(id);
+      this.tombNodes.delete(id);
+      nodes.push(structuredClone(t.node));
+    }
+    const has = new Set(c.nodes.map((n) => n.id));
+    const edges: ReaderEdge[] = [];
+    const named = new Set(ids.edges ?? []);
+    for (const [id, t] of [...this.tombEdges]) {
+      const e = t.edge;
+      if (!(named.has(id) || (t.withNode && nodes.length)) || !has.has(e.from) || !has.has(e.to)) continue;
+      if (!c.edges.some((x) => x.id === id)) {
+        c.edges.push(structuredClone(e));
+        edges.push(structuredClone(e));
+      }
+      this.tombEdges.delete(id);
+    }
+    if (nodes.length || edges.length) this.events.emit("node.restored", { nodes: nodes.map((n) => n.id), edges: edges.map((e) => e.id) });
+    return { nodes, edges };
+  }
+
   /** 导入（或重新扫描）当前文件夹为一本书，然后重新载入画布。 */
   async importBook(folderName: string): Promise<ImportResult> {
     const result = await importBook(this.vault, this.registry, folderName);
@@ -176,8 +260,15 @@ export class Reader {
     // 先换出待写正文再 await：保存进行中 updateNode 设的正文（如流式回答结束时）留给下一次 save，不会被清掉。
     const bodies = this.bodies;
     this.bodies = {};
+    const removed = [...this.removed];
     try {
       await saveCanvas(this.vault, this.require(), { bodies });
+      for (const id of removed) {
+        // 保存期间又被撤销恢复的，文件要留着。
+        if (!this.removed.has(id)) continue;
+        await this.vault.remove(`${NODES_DIR}/${id}.md`);
+        this.removed.delete(id);
+      }
     } catch (e) {
       this.bodies = { ...bodies, ...this.bodies };
       throw e;
