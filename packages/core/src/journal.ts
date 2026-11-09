@@ -153,7 +153,15 @@ export type StatEvent =
   /** 切换回答深度重新生成。 */
   | { event: "depth"; actionId: string; depth: AnswerDepth }
   /** 打开「本次上下文」面板 / 去掉某几项重跑。 */
-  | { event: "context"; action: "open" | "rerun"; excluded: number };
+  | { event: "context"; action: "open" | "rerun"; excluded: number }
+  /** 语义缩放：缩到远景 / 回到近景。 */
+  | { event: "zoom"; level: "far" | "near" }
+  /** 聚焦模式：点中一张卡，size 是保留的卡数。 */
+  | { event: "focus"; size: number }
+  /** 跟随阅读开关；auto 为 true 表示换章时自动移了镜头。 */
+  | { event: "follow"; on: boolean; auto?: boolean }
+  /** 点了视口外新卡提示。 */
+  | { event: "new-card-hint"; dir: "left" | "right" | "up" | "down" };
 
 export type StatRecord = StatEvent & { schemaVersion: number; at: string };
 

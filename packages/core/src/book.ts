@@ -166,6 +166,8 @@ export interface ViewState {
   camera?: { x: number; y: number; z: number };
   openSourceId?: string;
   readerScroll?: number;
+  /** 跟随阅读：换章时镜头移到这一章的节点群。不写时默认开。 */
+  followReading?: boolean;
 }
 
 export async function readView(vault: Vault): Promise<ViewState | null> {

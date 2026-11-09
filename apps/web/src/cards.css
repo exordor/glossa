@@ -244,3 +244,29 @@
   /* tldraw 内部的 z-index 关在自己的层叠上下文里，画布上的面板、提示才能盖在它上面。 */
   .canvas .tl-container { isolation: isolate; }
 }
+
+@layer base {
+  /* 聚焦模式：选中一张卡，只保留它的上下游，其余变淡 */
+  .rc-card[data-dim="true"], .rd-edge[data-dim="true"] { opacity: var(--rd-opacity-dimmed); transition: opacity 120ms ease-out; }
+  @media (prefers-reduced-motion: reduce) { .rc-card[data-dim="true"], .rd-edge[data-dim="true"] { transition: none; } }
+
+  /* 视口外新卡提示：贴在画布边缘，点击才平移 */
+  .new-card-hint {
+    position: absolute; z-index: var(--rd-z-toolbar);
+    display: inline-flex; align-items: center; gap: var(--rd-space-1);
+    padding: var(--rd-space-1) var(--rd-space-3); border: var(--rd-stroke-contain) solid var(--rd-ai);
+    border-radius: var(--rd-radius-full); background: var(--rd-surface-raised); color: var(--rd-ai-ink);
+    box-shadow: var(--rd-shadow-popover); font: var(--rd-type-label); cursor: pointer;
+  }
+  .new-card-hint:hover { background: var(--rd-ai-soft); }
+  .new-card-hint[data-dir="right"] { right: var(--rd-space-3); top: 50%; transform: translateY(-50%); }
+  .new-card-hint[data-dir="left"] { left: var(--rd-space-3); top: 50%; transform: translateY(-50%); }
+  .new-card-hint[data-dir="down"] { bottom: calc(var(--rd-space-12) + var(--rd-space-6)); left: 50%; transform: translateX(-50%); }
+  .new-card-hint[data-dir="up"] { top: calc(var(--rd-space-12) + var(--rd-space-2)); left: 50%; transform: translateX(-50%); }
+  .new-card-hint[data-dir="left"] .rc-icon { transform: rotate(180deg); }
+  .new-card-hint[data-dir="up"] .rc-icon { transform: rotate(-90deg); }
+  .new-card-hint[data-dir="down"] .rc-icon { transform: rotate(90deg); }
+
+  /* 工具条上的开关按钮 */
+  .rc-iconbtn[aria-pressed="true"] { color: var(--rd-ai); background: var(--rd-ai-soft); }
+}

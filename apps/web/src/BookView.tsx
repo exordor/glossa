@@ -4,6 +4,7 @@ import {
   type ActionTemplate,
   type Anchor,
   type AnswerDepth,
+  type ReaderEdge,
   type ReaderNode,
   type SourceDoc,
   type AssembledContext,
@@ -29,6 +30,9 @@ import type { BookSession } from "./session";
 import { SourceReader, type TextRange } from "./SourceReader";
 import { InlineCard, type InlineCardState } from "./InlineCard";
 import { ContextPanel } from "./ContextPanel";
+import { type Direction, chapterCluster, focusSet, offscreenDirection } from "./attention";
+import { focusAtom } from "./focus";
+import { EDGE_TYPE } from "./edge-shape";
 
 /** 新卡放在来源（章节卡）这一列最下面一张卡的下方。 */
 const STACK_GAP = 40;
@@ -87,6 +91,8 @@ function debounce<A extends unknown[]>(fn: (...a: A) => void, ms: number) {
 export function BookView({ session, onClose, onOpenSettings }: { session: BookSession; onClose: () => void; onOpenSettings: () => void }) {
   const { reader, book } = session;
   const [editor, setEditor] = useState<Editor | null>(null);
+  // 开发期给浏览器测试脚本用：window.__glossaEditor。
+  if (import.meta.env.DEV && editor) (window as unknown as { __glossaEditor?: Editor }).__glossaEditor = editor;
   const [openSourceId, setOpenSourceId] = useState<string | null>(null);
   const [chapter, setChapter] = useState<{ doc: SourceDoc; path: string; resolveAsset: (s: string) => string | null } | null>(null);
   const [selection, setSelection] = useState<TextRange | null>(null);
@@ -107,11 +113,18 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
   /** 打开着的「本次上下文」面板：某张回答卡的，或就地卡的。 */
   const [ctxPanel, setCtxPanel] = useState<{ kind: "answer"; nodeId: string; context: AssembledContext } | { kind: "inline" } | null>(null);
   const mountedRef = useRef(true);
+  /** 跟随阅读（默认开，存在 view.json）。 */
+  const [follow, setFollow] = useState(true);
+  /** 视口外新卡提示。 */
+  const [newCard, setNewCard] = useState<{ nodeId: string; dir: Direction } | null>(null);
+  const newCardRef = useRef<string | null>(null);
   /** 记一条使用统计（stats.jsonl，不上传）。失败只在控制台提示。 */
   const stat = useCallback(
     (e: StatEvent) => void reader.journal.recordStat(e).catch((err: unknown) => console.warn("统计写入失败", err)),
     [reader],
   );
+  const statRef = useRef(stat);
+  statRef.current = stat;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -170,6 +183,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       if (disposed) return;
       syncShapes(editor, nodesRef.current, edges, book);
       const view = await reader.getView();
+      if (view?.followReading === false) setFollow(false);
       if (view?.camera) editor.setCamera(view.camera);
       else requestAnimationFrame(() => editor.zoomToFit({ animation: { duration: 0 } }));
 
@@ -194,14 +208,41 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       cameraReady.current = true;
       const saveCamera = debounce(() => void reader.saveView({ camera: cameraOf(editor), ...(openSourceRef.current ? { openSourceId: openSourceRef.current } : {}) }), 500);
       let lastSel = "";
+      let lastFar = editor.getZoomLevel() < 0.4;
       cleanups.push(
         editor.store.listen(
           () => {
             saveCamera();
+            // 语义缩放跨过远近阈值时记一次统计。
+            const far = editor.getZoomLevel() < 0.4;
+            if (far !== lastFar) {
+              lastFar = far;
+              statRef.current({ event: "zoom", level: far ? "far" : "near" });
+            }
+            // 新卡进了视口，提示就收起。
+            const pending = newCardRef.current;
+            if (pending) {
+              const b = editor.getShapePageBounds(shapeIdOf(pending));
+              const v = editor.getViewportPageBounds();
+              if (!b || !offscreenDirection({ x: v.x, y: v.y, w: v.w, h: v.h }, { x: b.x, y: b.y, w: b.w, h: b.h })) {
+                newCardRef.current = null;
+                setNewCard(null);
+              }
+            }
             const ids = editor.getSelectedShapeIds();
             const key = ids.join(",");
             if (key === lastSel) return;
             lastSel = key;
+            // 聚焦模式：点中一张卡，只保留它的上下游。
+            const card = ids.length === 1 ? editor.getShape(ids[0]!) : undefined;
+            if (card?.type === CARD_TYPE) {
+              const edges = editor
+                .getCurrentPageShapes()
+                .flatMap((s) => (s.type === EDGE_TYPE ? [{ id: s.id, ...(s.props as { from: string; to: string; role: ReaderEdge["role"] }) }] : []));
+              const set = focusSet(nodeIdOf(card.id), edges);
+              focusAtom.set(set);
+              statRef.current({ event: "focus", size: set.size });
+            } else focusAtom.set(null);
             if (ids.length !== 1) return;
             const node = nodesRef.current.find((n) => n.id === nodeIdOf(ids[0]!));
             if (node?.meta.anchor) setOpenSourceId(node.meta.anchor.sourceId);
@@ -288,6 +329,52 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       if (editor.getShape(shapeIdOf(n.id))) editor.updateShape({ id: shapeIdOf(n.id), type: CARD_TYPE, props: cardPropsOf(n, book) });
     },
     [editor, book],
+  );
+
+  /** 镜头动画：≤ 200ms，系统要求减少动效时直接跳。 */
+  const cameraAnim = () => ({ animation: { duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 200 } });
+
+  /** 目录里点章节：打开它；跟随阅读开着时，镜头移到这一章的节点群（保持缩放）。 */
+  const openChapter = useCallback(
+    (sourceId: string) => {
+      setOpenSourceId(sourceId);
+      if (!follow || !editor) return;
+      void reader.listEdges().then((edges) => {
+        const r = chapterCluster(nodesRef.current, edges, sourceId);
+        if (!r) return;
+        const v = editor.getViewportPageBounds();
+        editor.centerOnPoint({ x: r.x + r.w / 2, y: r.y + Math.min(r.h, v.h) / 2 }, cameraAnim());
+        stat({ event: "follow", on: true, auto: true });
+      });
+    },
+    [follow, editor, reader, stat],
+  );
+
+  /** 新卡在视口外时在画布边缘提示，不自动移镜头（不打断阅读）。 */
+  const noticeNewCard = useCallback(
+    (nodeId: string) => {
+      if (!editor) return;
+      const b = editor.getShapePageBounds(shapeIdOf(nodeId));
+      const v = editor.getViewportPageBounds();
+      const dir = b && offscreenDirection({ x: v.x, y: v.y, w: v.w, h: v.h }, { x: b.x, y: b.y, w: b.w, h: b.h });
+      newCardRef.current = dir ? nodeId : null;
+      setNewCard(dir ? { nodeId, dir } : null);
+    },
+    [editor],
+  );
+
+  /** 点新卡提示：镜头移过去并选中它。 */
+  const goToCard = useCallback(
+    (nodeId: string) => {
+      if (!editor) return;
+      const b = editor.getShapePageBounds(shapeIdOf(nodeId));
+      if (b) editor.centerOnPoint({ x: b.x + b.w / 2, y: b.y + b.h / 2 }, cameraAnim());
+      editor.select(shapeIdOf(nodeId));
+      if (newCard) stat({ event: "new-card-hint", dir: newCard.dir });
+      newCardRef.current = null;
+      setNewCard(null);
+    },
+    [editor, newCard, stat],
   );
 
   /** 组装本次上下文（第 6 步）：预算按动作的模型别名取。 */
@@ -599,10 +686,11 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
     nodesRef.current = await reader.listNodes();
     syncShapes(editor, nodesRef.current, await reader.listEdges(), book);
     editor.select(shapeIdOf(answer.id));
+    noticeNewCard(answer.id);
     save();
     stat({ event: "pin", actionId: req.action.id });
     closeInline();
-  }, [inline, editor, reader, book, save, nextSlot, closeInline, stat]);
+  }, [inline, editor, reader, book, save, nextSlot, closeInline, stat, noticeNewCard]);
 
   const runAction = useCallback(
     async (actionId: string) => {
@@ -657,6 +745,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       nodesRef.current = await reader.listNodes();
       syncShapes(editor, nodesRef.current, await reader.listEdges(), book);
       editor.select(shapeIdOf(answerId ?? node.id));
+      noticeNewCard(answerId ?? node.id);
       setSelection(null);
       window.getSelection()?.removeAllRanges();
       save();
@@ -666,7 +755,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
         void streamAnswer(answerId, action, { ...g, depth: action.depth });
       }
     },
-    [chapter, selection, editor, reader, save, book, streamAnswer, runInline, requestFor, stat],
+    [chapter, selection, editor, reader, save, book, streamAnswer, runInline, requestFor, stat, noticeNewCard],
   );
 
   return (
@@ -682,7 +771,7 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
                 className="rail-item"
                 aria-current={s.id === openSourceId ? "page" : undefined}
                 title={s.title ?? s.path}
-                onClick={() => setOpenSourceId(s.id)}
+                onClick={() => openChapter(s.id)}
               >
                 <span className="rail-num">{i + 1}</span>
                 <span className="rail-label">{s.title ?? s.path}</span>
@@ -693,6 +782,12 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
       </nav>
       <main className="canvas">
         <Tldraw shapeUtils={SHAPE_UTILS} onMount={setEditor} />
+        {newCard && (
+          <button className="new-card-hint" data-dir={newCard.dir} onClick={() => goToCard(newCard.nodeId)}>
+            新卡片
+            <Icon name="new-card" />
+          </button>
+        )}
         {ctxPanel?.kind === "answer" && (
           <ContextPanel
             title={nodesRef.current.find((n) => n.id === ctxPanel.nodeId)?.label ?? "回答"}
@@ -720,6 +815,20 @@ export function BookView({ session, onClose, onOpenSettings }: { session: BookSe
           {session.name}
           {!session.persistent && " · 示例书，改动不保存"}
           {saveError && <span className="canvas-error"> · 保存失败：{saveError}</span>}
+          <button
+            className="rc-iconbtn"
+            aria-label="跟随阅读"
+            aria-pressed={follow}
+            title={follow ? "跟随阅读：开（换章时镜头移到这一章的卡片）" : "跟随阅读：关"}
+            onClick={() => {
+              const on = !follow;
+              setFollow(on);
+              void reader.saveView({ followReading: on });
+              stat({ event: "follow", on });
+            }}
+          >
+            <Icon name="follow" />
+          </button>
           <button className="rc-iconbtn" aria-label="设置" title="设置" onClick={onOpenSettings}>
             <Icon name="settings" />
           </button>
